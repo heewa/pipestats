@@ -31,6 +31,8 @@ int main(int argc, char** argv) {
     struct itimerval interval_timer;
     struct sigaction interval_action;
     struct sigaction cleanup_action;
+    int abort_signals[] = {SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGPIPE, SIGTERM};
+    int i;
 
     // Init stats.
     memset(&stats, 0, sizeof(Stats));
@@ -59,9 +61,12 @@ int main(int argc, char** argv) {
     // Set up handler for exiting, to print a final report, even if aborted.
     memset(&cleanup_action, 0, sizeof(struct sigaction));
     cleanup_action.sa_handler = &cleanup;
-    if (sigaction(SIGINT, &cleanup_action, NULL) != 0) {
-        fprintf(stderr, "Failed to set cleanup handler.\n");
-        return -1;
+    for (i=sizeof(abort_signals) / sizeof(abort_signals[0]) - 1; i >= 0; --i) {
+        if (sigaction(abort_signals[i], &cleanup_action, NULL) != 0) {
+            fprintf(stderr, "Failed to set cleanup handler for sig %d.\n",
+                    i);
+            return -1;
+        }
     }
 
     // Read until there's nothing left.
