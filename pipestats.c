@@ -42,11 +42,15 @@ int main(int argc, char** argv) {
             print_report(elapsed, bytes_since, total_bytes);
             bytes_since = 0;
             last_report = now;
+            elapsed = 0;
         }
     }
 
-    if (bytes_since > 0) {
+    if (elapsed > 1.0) {
         print_report(elapsed, bytes_since, total_bytes);
+    } else {
+        // Just print a final report.
+        fprintf(stderr, "%lu bytes total\n", total_bytes);
     }
 
     return 0;
