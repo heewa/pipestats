@@ -11,8 +11,12 @@
 #define REPORT_FREQ (2.0)
 
 double elapsed_sec(struct timeval* end, struct timeval* start);
+
+int setup();
+
 void print_report();
 void print_final_report();
+
 void interval(int signal);
 void cleanup(int signal);
 
@@ -28,6 +32,35 @@ Stats stats;
 
 int main(int argc, char** argv) {
     char buff[BUF_SIZE];
+    int r;
+
+    r = setup();
+    if (r != 0) {
+        return r;
+    }
+
+    // Read until there's nothing left.
+    while (!feof(stdin)) {
+        int bytes_read = 0;
+
+        // Read and write out as close to each other as possible.
+        bytes_read = fread(buff, 1, BUF_SIZE, stdin);
+        if (bytes_read > 0) {
+            // But first update counters, cuz we might report white this is
+            // going out to the buffer? Is that sound logic? woof!
+            stats.total_bytes += bytes_read;
+            stats.bytes_since += bytes_read;
+            fwrite(buff, 1, bytes_read, stdout);
+        }
+    }
+
+    print_final_report();
+
+    return 0;
+}
+
+
+int setup() {
     struct itimerval interval_timer;
     struct sigaction interval_action;
     struct sigaction cleanup_action;
@@ -68,23 +101,6 @@ int main(int argc, char** argv) {
             return -1;
         }
     }
-
-    // Read until there's nothing left.
-    while (!feof(stdin)) {
-        int bytes_read = 0;
-
-        // Read and write out as close to each other as possible.
-        bytes_read = fread(buff, 1, BUF_SIZE, stdin);
-        if (bytes_read > 0) {
-            // But first update counters, cuz we might report white this is
-            // going out to the buffer? Is that sound logic? woof!
-            stats.total_bytes += bytes_read;
-            stats.bytes_since += bytes_read;
-            fwrite(buff, 1, bytes_read, stdout);
-        }
-    }
-
-    print_final_report();
 
     return 0;
 }
