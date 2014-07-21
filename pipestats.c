@@ -40,6 +40,7 @@ Options options;
 int main(int argc, char** argv) {
     char buff[BUF_SIZE];
     int r;
+    int done = 0;
 
     if ((r = read_options(argc, argv)) != 0) {
         return r;
@@ -50,7 +51,7 @@ int main(int argc, char** argv) {
     }
 
     // Read until there's nothing left.
-    while (!feof(stdin)) {
+    while (!done) {
         int bytes_read = 0;
 
         // Read and write out as close to each other as possible.
@@ -61,8 +62,16 @@ int main(int argc, char** argv) {
             stats.total_bytes += bytes_read;
             stats.bytes_since += bytes_read;
             fwrite(buff, 1, bytes_read, stdout);
+        } else if (ferror(stdin) != 0) {
+            fprintf(stderr, "Error reading from stdin: %d\n", ferror(stdin));
+            done = 1;
+        } else {
+            done = feof(stdin);
         }
     }
+
+    // Make sure it all went out.
+    fflush(stdout);
 
     print_final_report();
 
