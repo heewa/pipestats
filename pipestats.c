@@ -68,26 +68,53 @@ int main(int argc, char** argv) {
 
     // Read until there's nothing left.
     while (!done) {
-        int bytes_read = 0;
+        int bytes_read;
 
         // Read and write out as close to each other as possible.
         bytes_read = fread(buff, 1, BUF_SIZE, stdin);
         if (bytes_read > 0) {
+            int bytes_written;
+
             // But first update counters, cuz we might report white this is
             // going out to the buffer? Is that sound logic? woof!
             stats.total_bytes += bytes_read;
             stats.bytes_since += bytes_read;
-            fwrite(buff, 1, bytes_read, stdout);
+
+            bytes_written = fwrite(buff, 1, bytes_read, stdout);
+            if (bytes_written != bytes_read && ferror(stdout)) {
+                fprintf(stderr,
+                        "Error writing to stdout: (%d) %s\n"
+                        "Read %d bytes, wrote %d b.\n",
+                        ferror(stdout),
+                        strerror(ferror(stdout)),
+                        bytes_read,
+                        bytes_written);
+                //done = 1;
+            } else if (bytes_written != bytes_read) {
+                // hmm, didn't write everything, but no error? weird..
+                fprintf(stderr,
+                        "Failed to write everything, but no error :/ Read %d b,"
+                        " wrote %d b.\n",
+                        bytes_read,
+                        bytes_written);
+            // Flush it out, cuz otherwise we get errors? I don't fully
+            // understand why.
+            } else if (fflush(stdout) != 0) {
+                fprintf(stderr,
+                        "Failed to flush output, err %d: %s\n",
+                        ferror(stdout),
+                        strerror(ferror(stdout)));
+            }
         } else if (ferror(stdin) != 0) {
-            fprintf(stderr, "Error reading from stdin: %d\n", ferror(stdin));
+            fprintf(stderr,
+                    "Error reading from stdin: (%d) %s\n",
+                    ferror(stdin),
+                    strerror(ferror(stdout)));
             done = 1;
         } else {
             done = feof(stdin);
         }
     }
-
-    // Make sure it all went out.
-    fflush(stdout);
 
     print_final_report();
 
