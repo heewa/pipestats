@@ -154,5 +154,5 @@ void interval(int signal) {
 
 void cleanup(int signal) {
     print_final_report();
-    exit(0);
+    exit(signal);
 }
