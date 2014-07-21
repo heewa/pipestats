@@ -140,7 +140,7 @@ void print_final_report() {
     gettimeofday(&now, NULL);
     elapsed = elapsed_sec(&now, &stats.start);
 
-    fprintf(stderr, "\n%lu bytes total over %.2f sec, avg %.2f bytes per sec\n",
+    fprintf(stderr, "%lu bytes total over %.2f sec, avg %.2f bytes per sec\n",
             stats.total_bytes,
             elapsed,
             stats.total_bytes / elapsed);
@@ -153,6 +153,7 @@ void interval(int signal) {
 
 
 void cleanup(int signal) {
+    fprintf(stderr, "\n");
     print_final_report();
     exit(signal);
 }
