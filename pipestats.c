@@ -6,12 +6,13 @@
 #include <sys/time.h>
 #include <time.h>
 #include <signal.h>
+#include <getopt.h>
 
 #define BUF_SIZE (1024)
-#define REPORT_FREQ (2.0)
 
 double elapsed_sec(struct timeval* end, struct timeval* start);
 
+int read_options();
 int setup();
 
 void print_report();
@@ -30,12 +31,21 @@ typedef struct Stats {
 Stats stats;
 
 
+typedef struct Options {
+    double freq;
+} Options;
+Options options;
+
+
 int main(int argc, char** argv) {
     char buff[BUF_SIZE];
     int r;
 
-    r = setup();
-    if (r != 0) {
+    if ((r = read_options(argc, argv)) != 0) {
+        return r;
+    }
+
+    if ((r = setup()) != 0) {
         return r;
     }
 
@@ -60,6 +70,58 @@ int main(int argc, char** argv) {
 }
 
 
+int read_options(int argc, char** argv) {
+    int opt = 0;
+    static struct option long_options[] = {
+        {"help", no_argument, NULL, 'h'},
+        {"freq", required_argument, NULL, 'f'},
+        {0, 0, 0, 0}
+    };
+
+    // Init with defaults.
+    options.freq = 2.0;
+
+    while (opt != -1) {
+        int option_index = 0;
+
+        opt = getopt_long(argc, argv, "hf:", long_options, &option_index);
+        switch (opt) {
+        case -1:
+            break;
+
+        case 'h':
+            printf("usage: %s [options]\n"
+                   "\n"
+                   "    -f/--freq SECONDS    Report frequency, 0 to disable.\n"
+                   "\n"
+                   "pipestats reads from stdin, writes that input to stdout, "
+                   "and reports stats about data transfered to stderr.\n",
+                   argv[0]);
+            return -1;
+            break;
+
+        case 'f':
+            options.freq = strtod(optarg, NULL);
+            if (options.freq < 0) {
+                fprintf(stderr, "ERROR: frequency must be >= 0\n");
+                return -1;
+            }
+            break;
+
+        case '?':
+            return -1;
+            break;
+
+        default:
+            return -1;
+            break;
+        }
+    }
+
+    return 0;
+}
+
+
 int setup() {
     struct itimerval interval_timer;
     struct sigaction interval_action;
@@ -75,20 +137,22 @@ int setup() {
     // Init timer. Use a timer instead of reporting in the main loop so we
     // can use blocking reads (while reporting consistently), instead of
     // a wasteful tight loop.
-    interval_timer.it_interval.tv_sec = (int) REPORT_FREQ;
-    interval_timer.it_interval.tv_usec =
-        (REPORT_FREQ - ((int) REPORT_FREQ)) * (1000 * 1000);
-    interval_timer.it_value = interval_timer.it_interval;
+    if (options.freq > 0) {
+        interval_timer.it_interval.tv_sec = (int) options.freq;
+        interval_timer.it_interval.tv_usec =
+            (options.freq- ((int) options.freq)) * (1000 * 1000);
+        interval_timer.it_value = interval_timer.it_interval;
 
-    memset(&interval_action, 0, sizeof(struct sigaction));
-    interval_action.sa_handler = &interval;
-    if (sigaction(SIGALRM, &interval_action, NULL) != 0) {
-        fprintf(stderr, "Failed to set up timer handler.\n");
-        return -1;
-    }
-    if (setitimer(ITIMER_REAL, &interval_timer, NULL) != 0) {
-        fprintf(stderr, "Failed to start timer.\n");
-        return -1;
+        memset(&interval_action, 0, sizeof(struct sigaction));
+        interval_action.sa_handler = &interval;
+        if (sigaction(SIGALRM, &interval_action, NULL) != 0) {
+            fprintf(stderr, "Failed to set up timer handler.\n");
+            return -1;
+        }
+        if (setitimer(ITIMER_REAL, &interval_timer, NULL) != 0) {
+            fprintf(stderr, "Failed to start timer.\n");
+            return -1;
+        }
     }
 
     // Set up handler for exiting, to print a final report, even if aborted.
