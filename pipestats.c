@@ -13,8 +13,13 @@
 typedef struct Stats {
     unsigned long int total_bytes;
     unsigned int bytes_since;
+
     struct timeval last_report;
     struct timeval start;
+
+    unsigned int num_errors;
+    unsigned int underwrites;
+    unsigned int underwritten_bytes;
 } Stats;
 Stats stats;
 
@@ -58,8 +63,10 @@ void cleanup(int signal);
 
 int main(int argc, char** argv) {
     char buff[BUF_SIZE];
+    size_t buff_offset = 0;
     int r;
     int done = 0;
+    int bytes_read = 0;
 
     if ((r = read_options(argc, argv)) != 0) {
         return r;
@@ -70,7 +77,6 @@ int main(int argc, char** argv) {
     }
 
     while (!done) {
-        int bytes_read;
         if (should_report) {
             // Report first, then clear flag, so we don't bother reporting
             // back-to-back in overlap scenarios.
@@ -78,52 +84,62 @@ int main(int argc, char** argv) {
             should_report = 0;
         }
 
+        // Only read more if we've already written everything we already had.
+        if (bytes_read == 0) {
+            bytes_read = fread(buff, 1, BUF_SIZE, stdin);
+        }
 
-        // Read and write out as close to each other as possible.
-        bytes_read = fread(buff, 1, BUF_SIZE, stdin);
         if (bytes_read > 0) {
             int bytes_written;
+            int err;
 
             // But first update counters, cuz we might report white this is
             // going out to the buffer? Is that sound logic? woof!
-            stats.total_bytes += bytes_read;
-            stats.bytes_since += bytes_read;
+            bytes_written = fwrite(buff + buff_offset, 1, bytes_read, stdout);
+            stats.total_bytes += bytes_written;
+            stats.bytes_since += bytes_written;
 
-            bytes_written = fwrite(buff, 1, bytes_read, stdout);
-            if (bytes_written != bytes_read && ferror(stdout)) {
-                fprintf(stderr,
-                        "Error writing to stdout: (%d) %s\n"
-                        "Read %d bytes, wrote %d b.\n",
-                        ferror(stdout),
-                        strerror(ferror(stdout)),
-                        bytes_read,
-                        bytes_written);
-                //done = 1;
-            } else if (bytes_written != bytes_read) {
-                // hmm, didn't write everything, but no error? weird..
-                fprintf(stderr,
-                        "Failed to write everything, but no error :/ Read %d b,"
-                        " wrote %d b.\n",
-                        bytes_read,
-                        bytes_written);
-            // Flush it out, cuz otherwise we get errors? I don't fully
-            // understand why.
-            } else if (fflush(stdout) != 0) {
-                fprintf(stderr,
-                        "Failed to flush output, err %d: %s\n",
-                        ferror(stdout),
-                        strerror(ferror(stdout)));
+            // Sigh, check some stupid scenarios.
+            if (bytes_read < 0) {
+                fprintf(stderr, "Read negative bytes? %d\n", bytes_read);
+                abort();
+            } else if (bytes_written < 0) {
+                fprintf(stderr, "Wrote negative bytes? %d\n", bytes_written);
+                abort();
+            } else if (bytes_written > bytes_read) {
+                fprintf(stderr, "Wrote more (%d b) that read (%d b)?\n",
+                        bytes_written, bytes_read);
+                abort();
             }
-        } else if (ferror(stdin) != 0) {
-            fprintf(stderr,
-                    "Error reading from stdin: (%d) %s\n",
-                    ferror(stdin),
-                    strerror(ferror(stdout)));
-            done = 1;
+
+            if (bytes_written == bytes_read) {
+                bytes_read = 0;
+                buff_offset = 0;
+            } else {
+                if ((err = ferror(stdout)) != 0) {
+                    ++stats.num_errors;
+                }
+
+                // Write the rest next time around.
+                if (bytes_written > 0) {
+                    bytes_read -= bytes_written;
+                    buff_offset += bytes_written;
+
+                    // Only pay attention to partial writes. When nothing was
+                    // written, that could be cuz of an error.
+                    ++stats.underwrites;
+                    stats.underwritten_bytes += (bytes_read - bytes_written);
+                }
+            }
         } else {
+            // Only bother checking if no more data was read.
             done = feof(stdin);
         }
     }
+
+    // Just for timing niceness, flush buffers before printing report.
+    fflush(stdout);
+    fclose(stdout);
 
     print_final_report();
 
@@ -351,6 +367,16 @@ void print_final_report() {
             stats.total_bytes,
             elapsed,
             data_amount / elapsed, data_amount_unit);
+
+    if (stats.num_errors > 0) {
+        fprintf(stderr, "Got %d write errors.\n",
+                stats.num_errors);
+    }
+
+    if (stats.underwrites > 0) {
+        fprintf(stderr, "Underwrote %d times by a total of %d bytes.\n",
+                stats.underwrites, stats.underwritten_bytes);
+    }
 }
 
 
@@ -360,7 +386,7 @@ void interval(int signal) {
 
 
 void cleanup(int signal) {
-    fprintf(stderr, "\n");
+    fprintf(stderr, "\nGot signal %d, aborting early.\n", signal);
     print_final_report();
     exit(signal);
 }
