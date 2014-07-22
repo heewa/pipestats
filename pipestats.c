@@ -7,6 +7,7 @@
 #include <time.h>
 #include <signal.h>
 #include <getopt.h>
+#include <fcntl.h>
 
 #define BUF_SIZE (1024)
 
@@ -227,6 +228,35 @@ int setup() {
     struct sigaction cleanup_action;
     int abort_signals[] = {SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGPIPE, SIGTERM};
     int i;
+    int err;
+
+    // Put stdin/stdout into non-blocking mode, so even if there's less than
+    // buffer size of data, we clean that out and report stats on it.
+    /*
+    if (fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK) == -1) {
+        fprintf(stderr,
+                "Warning: failed to put stdin in nonblocking mode. "
+                "Reporting might not be consistently on time.\n");
+    }
+    if (fcntl(STDOUT_FILENO, F_SETFL, O_NONBLOCK) == -1) {
+        fprintf(stderr,
+                "Warning: failed to put stdout in nonblocking mode. "
+                "Reporting might not be consistently on time.\n");
+    }
+    */
+
+    if ((err = ferror(stdin)) != 0) {
+        fprintf(stderr,
+                "stdin is in error state %d: %s\nclearing and continuing\n",
+                err, strerror(err));
+        clearerr(stdin);
+    }
+    if ((err = ferror(stdout)) != 0) {
+        fprintf(stderr,
+                "stdout is in error state %d: %s\nclearing and continuing\n",
+                err, strerror(err));
+        clearerr(stdout);
+    }
 
     // Init stats.
     memset(&stats, 0, sizeof(Stats));
