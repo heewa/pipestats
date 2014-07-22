@@ -35,6 +35,9 @@ typedef struct Options {
 Options options;
 
 
+static volatile sig_atomic_t should_report = 0;
+
+
 double elapsed_sec(struct timeval* end, struct timeval* start);
 double adjust_unit(double bytes, Unit target_unit);
 const char* unit_name(double bytes, Unit target_unit);
@@ -66,9 +69,15 @@ int main(int argc, char** argv) {
         return r;
     }
 
-    // Read until there's nothing left.
     while (!done) {
         int bytes_read;
+        if (should_report) {
+            // Report first, then clear flag, so we don't bother reporting
+            // back-to-back in overlap scenarios.
+            print_report();
+            should_report = 0;
+        }
+
 
         // Read and write out as close to each other as possible.
         bytes_read = fread(buff, 1, BUF_SIZE, stdin);
@@ -346,7 +355,7 @@ void print_final_report() {
 
 
 void interval(int signal) {
-    print_report();
+    should_report = 1;
 }
 
 
