@@ -416,7 +416,8 @@ void interval(int signal) {
 
 
 void cleanup(int signal) {
-    fprintf(stderr, "\nGot signal %d, aborting early.\n", signal);
+    fprintf(stderr, "\nGot signal %s, aborting early.\n",
+            strsignal(signal));
     print_final_report();
     exit(signal);
 }
