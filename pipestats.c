@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <getopt.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #define BUF_SIZE (1024)
 
@@ -21,6 +22,7 @@ typedef struct Stats {
     unsigned int num_errors;
     unsigned int underwrites;
     unsigned int underwritten_bytes;
+    unsigned int interrupted_writes;
 } Stats;
 Stats stats;
 
@@ -92,7 +94,6 @@ int main(int argc, char** argv) {
 
         if (bytes_read > 0) {
             int bytes_written;
-            int err;
 
             // But first update counters, cuz we might report white this is
             // going out to the buffer? Is that sound logic? woof!
@@ -117,8 +118,11 @@ int main(int argc, char** argv) {
                 bytes_read = 0;
                 buff_offset = 0;
             } else {
-                if ((err = ferror(stdout)) != 0) {
+                if (errno == EINTR) {
+                    ++stats.interrupted_writes;
+                } else if (ferror(stdout)) {
                     ++stats.num_errors;
+                    perror("Failed a write");
                 }
 
                 // Write the rest next time around.
@@ -132,8 +136,10 @@ int main(int argc, char** argv) {
                     stats.underwritten_bytes += (bytes_read - bytes_written);
                 }
             }
-        } else {
-            // Only bother checking if no more data was read.
+
+        // Interrupted calls don't signal end of input, but otherwise if no
+        // data was read, maybe we're done?
+        } else if (errno != EINTR) {
             done = feof(stdin);
         }
     }
@@ -406,6 +412,11 @@ void print_final_report() {
     if (stats.underwrites > 0) {
         fprintf(stderr, "Underwrote %d times by a total of %d bytes.\n",
                 stats.underwrites, stats.underwritten_bytes);
+    }
+
+    if (stats.interrupted_writes > 0) {
+        fprintf(stderr, "Got interrupted during a write %d times.\n",
+                stats.interrupted_writes);
     }
 }
 
