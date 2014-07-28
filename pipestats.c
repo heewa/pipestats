@@ -44,6 +44,7 @@ Options options;
 
 
 static volatile sig_atomic_t should_report = 0;
+static volatile sig_atomic_t done = 0;
 
 
 double elapsed_sec(struct timeval* end, struct timeval* start);
@@ -68,8 +69,9 @@ int main(int argc, char** argv) {
     char buff[BUF_SIZE];
     size_t buff_offset = 0;
     int r;
-    int done = 0;
     int bytes_read = 0;
+
+    done = 0;
 
     if ((r = read_options(argc, argv)) != 0) {
         return r;
@@ -79,7 +81,7 @@ int main(int argc, char** argv) {
         return r;
     }
 
-    while (!done) {
+    while (bytes_read > 0 || !done) {
         if (should_report) {
             // Report first, then clear flag, so we don't bother reporting
             // back-to-back in overlap scenarios.
@@ -429,6 +431,5 @@ void interval(int signal) {
 void cleanup(int signal) {
     fprintf(stderr, "\nGot signal %s, aborting early.\n",
             strsignal(signal));
-    print_final_report();
-    exit(signal);
+    done = 1;
 }
