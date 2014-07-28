@@ -536,32 +536,32 @@ void print_final_report() {
     }
 
     if (stats.num_errors > 0) {
-        fprintf(stderr, "Got %d write errors.\n",
+        fprintf(stderr, "\tGot %d write errors.\n",
                 stats.num_errors);
     }
 
     if (options.verbose) {
         if (stats.underwrites > 0) {
-            fprintf(stderr, "Underwrote %d times by a total of %d bytes.\n",
+            fprintf(stderr, "\tUnderwrote %d times by a total of %d bytes.\n",
                     stats.underwrites, stats.underwritten_bytes);
         }
 
         if (stats.interrupted_writes > 0) {
-            fprintf(stderr, "Got interrupted during a write %d times.\n",
+            fprintf(stderr, "\tGot interrupted during a write %d times.\n",
                     stats.interrupted_writes);
         }
         if (stats.interrupted_reads > 0) {
-            fprintf(stderr, "Got interrupted during a read %d times.\n",
+            fprintf(stderr, "\tGot interrupted during a read %d times.\n",
                     stats.interrupted_reads);
         }
 
         for (i=0; i < MAX_ERR_CODE; ++i) {
             if (stats.num_write_errors_by_code[i] > 0) {
-                fprintf(stderr, "Got err %d on a write %d times.\n",
+                fprintf(stderr, "\tGot err %d on a write %d times.\n",
                         i, stats.num_write_errors_by_code[i]);
             }
             if (stats.num_read_errors_by_code[i] > 0) {
-                fprintf(stderr, "Got err %d on a read %d times.\n",
+                fprintf(stderr, "\tGot err %d on a read %d times.\n",
                         i, stats.num_read_errors_by_code[i]);
             }
         }
