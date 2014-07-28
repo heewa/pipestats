@@ -93,7 +93,57 @@ int main(int argc, char** argv) {
 
         // Only read more if we've already written everything we already had.
         if (bytes_read == 0) {
+            /*
             bytes_read = fread(buff, 1, BUF_SIZE, stdin);
+
+            if (ferror(stdin) == 0) {
+                // cool
+            */
+
+            int data;
+            while (bytes_read <= BUF_SIZE && (data = getc(stdin)) != EOF) {
+                buff[bytes_read++] = data;
+            }
+
+            // Check if we just read enough, or it's the end of input, or
+            // there was an error.
+            if (data != EOF || ferror(stdin) == 0) {
+                done = (data == EOF);
+            /*
+            */
+            } else if (ferror(stdin) != 0) {
+                // Use a switch statement so it doesn't check each of many
+                // conditions that we can safely ignore.
+                switch (errno) {
+                case EINTR:
+                case EBUSY:
+                case EDEADLK:
+                case EAGAIN:
+                case ETXTBSY:
+                    break;
+
+                case EPIPE:
+                    // Inform user, but nobody's writing anymore, so there's
+                    // nothing left to read. Don't abort right away, finish
+                    // writing the rest.
+                    if (!options.ignore_errors) {
+                        fprintf(stderr,
+                                "Broken pipe on stdin, will finish writing "
+                                "and exit.\n");
+                    }
+                    done = 1;
+                    break;
+
+                default:
+                    ++stats.num_errors;
+                    if (!options.ignore_errors) {
+                        fprintf(stderr, "Got err %d during a read: %s\n",
+                                errno, strerror(errno));
+                        abort();
+                    }
+                    break;
+                }
+            }
         }
 
         if (bytes_read > 0) {
@@ -128,9 +178,25 @@ int main(int argc, char** argv) {
                 bytes_read = 0;
                 buff_offset = 0;
             } else {
-                if (errno == EINTR) {
+                // Use a switch statement so it doesn't check each of many
+                // conditions that we can safely ignore.
+                switch (errno) {
+                case EINTR:
+                case EBUSY:
+                case EDEADLK:
+                case EAGAIN:
+                case ETXTBSY:
                     ++stats.interrupted_writes;
-                } else if (ferror(stdout)) {
+                    break;
+
+                case EPIPE:
+                    // Shit! Nobody's reading, but we already took the data
+                    // from stdin. Now it's lost, I guess. Oh well.
+                    bytes_read = 0;
+                    done = 1;
+                    break;
+
+                default:
                     ++stats.num_errors;
                     if (!options.ignore_errors) {
                         fprintf(stderr, "Got err %d during a write: %s\n",
