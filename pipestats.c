@@ -557,12 +557,16 @@ void print_final_report() {
 
         for (i=0; i < MAX_ERR_CODE; ++i) {
             if (stats.num_write_errors_by_code[i] > 0) {
-                fprintf(stderr, "\tGot err %d on a write %d times.\n",
-                        i, stats.num_write_errors_by_code[i]);
+                fprintf(stderr, "\tGot err %d on a write %d times: %s\n",
+                        i,
+                        stats.num_write_errors_by_code[i],
+                        strerror(i));
             }
             if (stats.num_read_errors_by_code[i] > 0) {
-                fprintf(stderr, "\tGot err %d on a read %d times.\n",
-                        i, stats.num_read_errors_by_code[i]);
+                fprintf(stderr, "\tGot err %d on a read %d times: %s\n",
+                        i,
+                        stats.num_read_errors_by_code[i],
+                        strerror(i));
             }
         }
     }
