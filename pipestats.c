@@ -44,6 +44,7 @@ typedef struct Options {
     Unit unit;
     int blocking;
     int ignore_errors;
+    int verbose;
 } Options;
 Options options;
 
@@ -242,6 +243,7 @@ int read_options(int argc, char** argv) {
     int opt = 0;
     static struct option long_options[] = {
         {"help", no_argument, NULL, 'h'},
+        {"verbose", no_argument, NULL, 'v'},
         {"human", no_argument, NULL, 'H'},
         {"freq", required_argument, NULL, 'f'},
         {"blocking-io", no_argument, NULL, 'b'},
@@ -254,11 +256,12 @@ int read_options(int argc, char** argv) {
     options.unit = Human;
     options.blocking = 0;
     options.ignore_errors = 0;
+    options.verbose = 0;
 
     while (opt != -1) {
         int option_index = 0;
 
-        opt = getopt_long(argc, argv, "hHBKMGf:b", long_options, &option_index);
+        opt = getopt_long(argc, argv, "hvHBKMGf:b", long_options, &option_index);
         switch (opt) {
         case -1:
             break;
@@ -272,6 +275,10 @@ int read_options(int argc, char** argv) {
                    "and reports stats about data transfered to stderr.\n",
                    argv[0]);
             return -1;
+            break;
+
+        case 'v':
+            options.verbose = 1;
             break;
 
         case 'H':
@@ -503,18 +510,20 @@ void print_final_report() {
                 stats.num_errors);
     }
 
-    if (stats.underwrites > 0) {
-        fprintf(stderr, "Underwrote %d times by a total of %d bytes.\n",
-                stats.underwrites, stats.underwritten_bytes);
-    }
+    if (options.verbose) {
+        if (stats.underwrites > 0) {
+            fprintf(stderr, "Underwrote %d times by a total of %d bytes.\n",
+                    stats.underwrites, stats.underwritten_bytes);
+        }
 
-    if (stats.interrupted_writes > 0) {
-        fprintf(stderr, "Got interrupted during a write %d times.\n",
-                stats.interrupted_writes);
-    }
-    if (stats.interrupted_reads > 0) {
-        fprintf(stderr, "Got interrupted during a read %d times.\n",
-                stats.interrupted_reads);
+        if (stats.interrupted_writes > 0) {
+            fprintf(stderr, "Got interrupted during a write %d times.\n",
+                    stats.interrupted_writes);
+        }
+        if (stats.interrupted_reads > 0) {
+            fprintf(stderr, "Got interrupted during a read %d times.\n",
+                    stats.interrupted_reads);
+        }
     }
 }
 
