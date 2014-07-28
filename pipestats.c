@@ -17,6 +17,9 @@ typedef struct Stats {
     unsigned long int total_bytes;
     unsigned int bytes_since;
 
+    // In case they're different, track both.
+    unsigned long int bytes_read;
+
     struct timeval last_report;
     struct timeval start;
 
@@ -104,6 +107,7 @@ int main(int argc, char** argv) {
             /*
             */
             bytes_read = fread(buff, 1, BUF_SIZE, stdin);
+            stats.bytes_read += bytes_read;
 
             if (ferror(stdin) == 0) {
                 // cool
@@ -113,6 +117,7 @@ int main(int argc, char** argv) {
             while (bytes_read <= BUF_SIZE && (data = getc(stdin)) != EOF) {
                 buff[bytes_read++] = data;
             }
+            stats.bytes_read += bytes_read;
 
             // Check if we just read enough, or it's the end of input, or
             // there was an error.
@@ -521,6 +526,14 @@ void print_final_report() {
             stats.total_bytes,
             elapsed,
             data_amount / elapsed, data_amount_unit);
+
+    if (stats.bytes_read < stats.total_bytes) {
+        fprintf(stderr, "\tFailed to write %lu bytes.\n",
+                stats.total_bytes - stats.bytes_read);
+    } else if (stats.bytes_read < stats.total_bytes) {
+        fprintf(stderr, "\tSomehow wrote %lu extra bytes.\n",
+                stats.bytes_read - stats.total_bytes);
+    }
 
     if (stats.num_errors > 0) {
         fprintf(stderr, "Got %d write errors.\n",
