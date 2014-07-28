@@ -104,27 +104,10 @@ int main(int argc, char** argv) {
 
         // Only read more if we've already written everything we already had.
         if (bytes_read == 0) {
-            /*
-            */
             bytes_read = fread(buff, 1, BUF_SIZE, stdin);
             stats.bytes_read += bytes_read;
 
-            if (ferror(stdin) == 0) {
-                // cool
-
-            /*
-            int data;
-            while (bytes_read <= BUF_SIZE && (data = getc(stdin)) != EOF) {
-                buff[bytes_read++] = data;
-            }
-            stats.bytes_read += bytes_read;
-
-            // Check if we just read enough, or it's the end of input, or
-            // there was an error.
-            if (data != EOF || (errno == 0 && ferror(stdin) == 0)) {
-                done = (data == EOF);
-            */
-            } else {
+            if (ferror(stdin) != 0) {
                 ++stats.num_read_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
 
                 // Use a switch statement so it doesn't check each of many
@@ -179,19 +162,9 @@ int main(int argc, char** argv) {
             bytes_written = fwrite(buff + buff_offset, 1, bytes_read, stdout);
 
             // Sigh, check some stupid scenarios.
-            if (bytes_read < 0) {
-                fprintf(stderr, "Read negative bytes? %d\n", bytes_read);
-                if (!options.ignore_errors) {
-                    abort();
-                }
-            } else if (bytes_written < 0) {
-                fprintf(stderr, "Wrote negative bytes? %d\n", bytes_written);
-                if (!options.ignore_errors) {
-                    abort();
-                }
-            } else if (bytes_written > bytes_read) {
-                fprintf(stderr, "Wrote more (%d b) that read (%d b)?\n",
-                        bytes_written, bytes_read);
+            if (bytes_read < 0 || bytes_written < 0 || bytes_written > bytes_read) {
+                fprintf(stderr, "\tWeird case: read %d bytes, wrote %d bytes.\n",
+                        bytes_read, bytes_written);
                 if (!options.ignore_errors) {
                     abort();
                 }
@@ -211,6 +184,8 @@ int main(int argc, char** argv) {
                                 "and told we wrote %d bytes.\n",
                                 bytes_read, bytes_written);
                     }
+                    // Gotta try again, I think?
+                    bytes_written = 0;
                 case EBUSY:
                 case EDEADLK:
                 case EAGAIN:
