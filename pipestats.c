@@ -11,6 +11,7 @@
 #include <errno.h>
 
 #define BUF_SIZE (1024)
+#define MAX_ERR_CODE (256)
 
 typedef struct Stats {
     unsigned long int total_bytes;
@@ -26,6 +27,9 @@ typedef struct Stats {
     unsigned int interrupted_writes;
 
     unsigned int interrupted_reads;
+
+    int num_write_errors_by_code[MAX_ERR_CODE];
+    int num_read_errors_by_code[MAX_ERR_CODE];
 } Stats;
 Stats stats;
 
@@ -116,6 +120,8 @@ int main(int argc, char** argv) {
             /*
             */
             } else if (ferror(stdin) != 0) {
+                ++stats.num_read_errors_by_code[errno];
+
                 // Use a switch statement so it doesn't check each of many
                 // conditions that we can safely ignore.
                 switch (errno) {
@@ -183,6 +189,8 @@ int main(int argc, char** argv) {
                 bytes_read = 0;
                 buff_offset = 0;
             } else {
+                ++stats.num_write_errors_by_code[errno];
+
                 // Use a switch statement so it doesn't check each of many
                 // conditions that we can safely ignore.
                 switch (errno) {
@@ -492,6 +500,7 @@ void print_report() {
 void print_final_report() {
     struct timeval now;
     double elapsed;
+    int i;
 
     double data_amount = adjust_unit(stats.total_bytes, options.unit);
     const char* data_amount_unit = unit_name(stats.total_bytes, options.unit);
@@ -523,6 +532,17 @@ void print_final_report() {
         if (stats.interrupted_reads > 0) {
             fprintf(stderr, "Got interrupted during a read %d times.\n",
                     stats.interrupted_reads);
+        }
+
+        for (i=0; i < MAX_ERR_CODE; ++i) {
+            if (stats.num_write_errors_by_code[i] > 0) {
+                fprintf(stderr, "Got err %d on a write %d times.\n",
+                        i, stats.num_write_errors_by_code[i]);
+            }
+            if (stats.num_read_errors_by_code[i] > 0) {
+                fprintf(stderr, "Got err %d on a read %d times.\n",
+                        i, stats.num_read_errors_by_code[i]);
+            }
         }
     }
 }
