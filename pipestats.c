@@ -39,6 +39,8 @@ typedef enum Unit {
 typedef struct Options {
     double freq;
     Unit unit;
+    int blocking;
+    int ignore_errors;
 } Options;
 Options options;
 
@@ -106,14 +108,20 @@ int main(int argc, char** argv) {
             // Sigh, check some stupid scenarios.
             if (bytes_read < 0) {
                 fprintf(stderr, "Read negative bytes? %d\n", bytes_read);
-                abort();
+                if (!options.ignore_errors) {
+                    abort();
+                }
             } else if (bytes_written < 0) {
                 fprintf(stderr, "Wrote negative bytes? %d\n", bytes_written);
-                abort();
+                if (!options.ignore_errors) {
+                    abort();
+                }
             } else if (bytes_written > bytes_read) {
                 fprintf(stderr, "Wrote more (%d b) that read (%d b)?\n",
                         bytes_written, bytes_read);
-                abort();
+                if (!options.ignore_errors) {
+                    abort();
+                }
             }
 
             if (bytes_written == bytes_read) {
@@ -124,7 +132,11 @@ int main(int argc, char** argv) {
                     ++stats.interrupted_writes;
                 } else if (ferror(stdout)) {
                     ++stats.num_errors;
-                    perror("Failed a write");
+                    if (!options.ignore_errors) {
+                        fprintf(stderr, "Got err %d during a write: %s\n",
+                                errno, strerror(errno));
+                        abort();
+                    }
                 }
 
                 // Write the rest next time around.
@@ -162,17 +174,21 @@ int read_options(int argc, char** argv) {
         {"help", no_argument, NULL, 'h'},
         {"human", no_argument, NULL, 'H'},
         {"freq", required_argument, NULL, 'f'},
+        {"blocking-io", no_argument, NULL, 'b'},
+        {"ignore-errors", no_argument, NULL, 'i'},
         {0, 0, 0, 0}
     };
 
     // Init with defaults.
     options.freq = 2.0;
     options.unit = Human;
+    options.blocking = 0;
+    options.ignore_errors = 0;
 
     while (opt != -1) {
         int option_index = 0;
 
-        opt = getopt_long(argc, argv, "hHBKMGf:", long_options, &option_index);
+        opt = getopt_long(argc, argv, "hHBKMGf:b", long_options, &option_index);
         switch (opt) {
         case -1:
             break;
@@ -216,6 +232,14 @@ int read_options(int argc, char** argv) {
             }
             break;
 
+        case 'b':
+            options.blocking = 1;
+            break;
+
+        case 'i':
+            options.ignore_errors = 1;
+            break;
+
         case '?':
             return -1;
             break;
@@ -240,18 +264,16 @@ int setup() {
 
     // Put stdin/stdout into non-blocking mode, so even if there's less than
     // buffer size of data, we clean that out and report stats on it.
-    /*
-    if (fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK) == -1) {
+    if (!options.blocking && fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK) == -1) {
         fprintf(stderr,
                 "Warning: failed to put stdin in nonblocking mode. "
                 "Reporting might not be consistently on time.\n");
     }
-    if (fcntl(STDOUT_FILENO, F_SETFL, O_NONBLOCK) == -1) {
+    if (!options.blocking && fcntl(STDOUT_FILENO, F_SETFL, O_NONBLOCK) == -1) {
         fprintf(stderr,
                 "Warning: failed to put stdout in nonblocking mode. "
                 "Reporting might not be consistently on time.\n");
     }
-    */
 
     if ((err = ferror(stdin)) != 0) {
         fprintf(stderr,
