@@ -1,7 +1,9 @@
-* estimate time to next milestone (1mb, 10mb, 100mb, etc)
-* option for progress bar, given expected total
+* better readme with more examples
 * more stats?
+  * estimated time to next milestone (1mb, 10mb, 100mb, etc)
+  * num lines & line speed
+  * byte histogram (at the end only?)
   * bps
   * progress
   * estimated time
-* better readme with more examples
+* option for progress bar, given expected total
