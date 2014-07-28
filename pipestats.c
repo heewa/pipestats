@@ -102,12 +102,13 @@ int main(int argc, char** argv) {
         // Only read more if we've already written everything we already had.
         if (bytes_read == 0) {
             /*
+            */
             bytes_read = fread(buff, 1, BUF_SIZE, stdin);
 
             if (ferror(stdin) == 0) {
                 // cool
-            */
 
+            /*
             int data;
             while (bytes_read <= BUF_SIZE && (data = getc(stdin)) != EOF) {
                 buff[bytes_read++] = data;
@@ -115,11 +116,10 @@ int main(int argc, char** argv) {
 
             // Check if we just read enough, or it's the end of input, or
             // there was an error.
-            if (data != EOF || ferror(stdin) == 0) {
+            if (data != EOF || (errno == 0 && ferror(stdin) == 0)) {
                 done = (data == EOF);
-            /*
             */
-            } else if (ferror(stdin) != 0) {
+            } else {
                 ++stats.num_read_errors_by_code[errno];
 
                 // Use a switch statement so it doesn't check each of many
@@ -155,6 +155,13 @@ int main(int argc, char** argv) {
                     break;
                 }
             }
+        } else if (bytes_read < 0) {
+            if (!options.ignore_errors) {
+                fprintf(stderr, "Somehow got to negative bytes read: %d\n",
+                        bytes_read);
+                abort();
+            }
+            bytes_read = 0;
         }
 
         if (bytes_read > 0) {
@@ -163,8 +170,6 @@ int main(int argc, char** argv) {
             // But first update counters, cuz we might report white this is
             // going out to the buffer? Is that sound logic? woof!
             bytes_written = fwrite(buff + buff_offset, 1, bytes_read, stdout);
-            stats.total_bytes += bytes_written;
-            stats.bytes_since += bytes_written;
 
             // Sigh, check some stupid scenarios.
             if (bytes_read < 0) {
@@ -185,10 +190,8 @@ int main(int argc, char** argv) {
                 }
             }
 
-            if (bytes_written == bytes_read) {
-                bytes_read = 0;
-                buff_offset = 0;
-            } else {
+            // Regardless of write result, check for errors.
+            if (ferror(stdout) != 0) {
                 ++stats.num_write_errors_by_code[errno];
 
                 // Use a switch statement so it doesn't check each of many
@@ -217,23 +220,28 @@ int main(int argc, char** argv) {
                         abort();
                     }
                 }
-
-                // Write the rest next time around.
-                if (bytes_written > 0) {
-                    bytes_read -= bytes_written;
-                    buff_offset += bytes_written;
-
-                    // Only pay attention to partial writes. When nothing was
-                    // written, that could be cuz of an error.
-                    ++stats.underwrites;
-                    stats.underwritten_bytes += (bytes_read - bytes_written);
-                }
             }
 
-        // Interrupted calls don't signal end of input, but otherwise if no
-        // data was read, maybe we're done?
-        } else if (errno != EINTR) {
-            done = feof(stdin);
+            // Cool, error checking out of the way, do some accounting.
+
+            stats.total_bytes += bytes_written;
+            stats.bytes_since += bytes_written;
+
+            if (bytes_written == bytes_read) {
+                bytes_read = 0;
+                buff_offset = 0;
+            } else if (bytes_written > 0) {
+                bytes_read -= bytes_written;
+                buff_offset += bytes_written;
+
+                // Only pay attention to partial writes. When nothing was
+                // written, that could be cuz of an error.
+                ++stats.underwrites;
+                stats.underwritten_bytes += (bytes_read - bytes_written);
+            }
+        } else {
+            // Make sure not to clear a done flag from some other reason.
+            done = done || feof(stdin);
         }
     }
 
