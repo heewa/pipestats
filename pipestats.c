@@ -9,6 +9,7 @@
 #include <getopt.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <sys/types.h>
 
 #define BUF_SIZE (1024)
 #define MAX_ERR_CODE (256)
@@ -74,15 +75,15 @@ void print_report();
 void print_final_report();
 
 
-void interval(int signal);
 void cleanup(int signal);
 
 
 int main(int argc, char** argv) {
-    char buff[BUF_SIZE];
     size_t buff_offset = 0;
     int r;
     int bytes_read = 0;
+    struct timeval report_interval;
+    char buff[BUF_SIZE];
 
     done = 0;
 
@@ -90,60 +91,66 @@ int main(int argc, char** argv) {
         return r;
     }
 
-    if ((r = setup()) != 0) {
+    if ((r = setup(&report_interval)) != 0) {
         return r;
     }
 
     while (bytes_read > 0 || !done) {
-        if (should_report) {
-            // Report first, then clear flag, so we don't bother reporting
-            // back-to-back in overlap scenarios.
+        if (options.freq > 0) {
             print_report();
-            should_report = 0;
         }
 
         // Only read more if we've already written everything we already had.
         if (bytes_read == 0) {
-            bytes_read = fread(buff, 1, BUF_SIZE, stdin);
-            stats.bytes_read += bytes_read;
+            fd_set set;
 
-            if (ferror(stdin) != 0) {
-                ++stats.num_read_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
+            // Use select so we don't wait for longer than report interval, but
+            // we do wait for some input at least that long (as opposed to just
+            // plain non-blocking io).
+            FD_ZERO(&set);
+            FD_SET(STDIN_FILENO, &set);
+            if (select(FD_SETSIZE, &set, NULL, NULL, &report_interval) > 0) {
+                bytes_read = fread(buff, 1, BUF_SIZE, stdin);
+                stats.bytes_read += bytes_read;
 
-                // Use a switch statement so it doesn't check each of many
-                // conditions that we can safely ignore.
-                switch (errno) {
-                case EINTR:
-                case EBUSY:
-                case EDEADLK:
-                case EAGAIN:
-                case ETXTBSY:
-                    ++stats.interrupted_reads;
-                    break;
+                if (ferror(stdin) != 0) {
+                    ++stats.num_read_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
 
-                case EPIPE:
-                    // Inform user, but nobody's writing anymore, so there's
-                    // nothing left to read. Don't abort right away, finish
-                    // writing the rest.
-                    if (!options.ignore_errors) {
-                        fprintf(stderr,
-                                "Broken pipe on stdin, will finish writing "
-                                "and exit.\n");
+                    // Use a switch statement so it doesn't check each of many
+                    // conditions that we can safely ignore.
+                    switch (errno) {
+                    case EINTR:
+                    case EBUSY:
+                    case EDEADLK:
+                    case EAGAIN:
+                    case ETXTBSY:
+                        ++stats.interrupted_reads;
+                        break;
+
+                    case EPIPE:
+                        // Inform user, but nobody's writing anymore, so there's
+                        // nothing left to read. Don't abort right away, finish
+                        // writing the rest.
+                        if (!options.ignore_errors) {
+                            fprintf(stderr,
+                                    "Broken pipe on stdin, will finish writing "
+                                    "and exit.\n");
+                        }
+                        done = 1;
+                        break;
+
+                    default:
+                        ++stats.num_errors;
+                        if (!options.ignore_errors) {
+                            fprintf(stderr, "Got err %d during a read: %s\n",
+                                    errno, strerror(errno));
+                            abort();
+                        }
+                        break;
                     }
-                    done = 1;
-                    break;
 
-                default:
-                    ++stats.num_errors;
-                    if (!options.ignore_errors) {
-                        fprintf(stderr, "Got err %d during a read: %s\n",
-                                errno, strerror(errno));
-                        abort();
-                    }
-                    break;
+                    clearerr(stdin);
                 }
-
-                clearerr(stdin);
             }
         } else if (bytes_read < 0) {
             if (!options.ignore_errors) {
@@ -155,79 +162,85 @@ int main(int argc, char** argv) {
         }
 
         if (bytes_read > 0) {
-            int bytes_written;
+            fd_set set;
 
-            // But first update counters, cuz we might report white this is
-            // going out to the buffer? Is that sound logic? woof!
-            bytes_written = fwrite(buff + buff_offset, 1, bytes_read, stdout);
+            FD_ZERO(&set);
+            FD_SET(STDOUT_FILENO, &set);
+            if (select(FD_SETSIZE, NULL, &set, NULL, &report_interval) > 0) {
+                int bytes_written;
 
-            // Sigh, check some stupid scenarios.
-            if (bytes_read < 0 || bytes_written < 0 || bytes_written > bytes_read) {
-                fprintf(stderr, "\tWeird case: read %d bytes, wrote %d bytes.\n",
-                        bytes_read, bytes_written);
-                if (!options.ignore_errors) {
-                    abort();
-                }
-            }
+                // But first update counters, cuz we might report white this is
+                // going out to the buffer? Is that sound logic? woof!
+                bytes_written = fwrite(buff + buff_offset, 1, bytes_read, stdout);
 
-            // Regardless of write result, check for errors.
-            if (ferror(stdout) != 0) {
-                ++stats.num_write_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
-
-                // Use a switch statement so it doesn't check each of many
-                // conditions that we can safely ignore.
-                switch (errno) {
-                case EINTR:
-                    if (options.verbose) {
-                        fprintf(stderr,
-                                "\tGot EINTR when trying to write %d bytes, "
-                                "and told we wrote %d bytes.\n",
-                                bytes_read, bytes_written);
-                    }
-                    // Gotta try again, I think?
-                    bytes_written = 0;
-                case EBUSY:
-                case EDEADLK:
-                case EAGAIN:
-                case ETXTBSY:
-                    ++stats.interrupted_writes;
-                    break;
-
-                case EPIPE:
-                    // Shit! Nobody's reading, but we already took the data
-                    // from stdin. Now it's lost, I guess. Oh well.
-                    bytes_read = 0;
-                    done = 1;
-                    break;
-
-                default:
-                    ++stats.num_errors;
+                // Sigh, check some stupid scenarios.
+                if (bytes_read < 0 || bytes_written < 0 || bytes_written > bytes_read) {
+                    fprintf(stderr, "\tWeird case: read %d bytes, wrote %d bytes.\n",
+                            bytes_read, bytes_written);
                     if (!options.ignore_errors) {
-                        fprintf(stderr, "Got err %d during a write: %s\n",
-                                errno, strerror(errno));
                         abort();
                     }
                 }
 
-                clearerr(stdout);
-            }
+                // Regardless of write result, check for errors.
+                if (ferror(stdout) != 0) {
+                    ++stats.num_write_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
 
-            // Cool, error checking out of the way, do some accounting.
+                    // Use a switch statement so it doesn't check each of many
+                    // conditions that we can safely ignore.
+                    switch (errno) {
+                    case EINTR:
+                        if (options.verbose) {
+                            fprintf(stderr,
+                                    "\tGot EINTR when trying to write %d bytes, "
+                                    "and told we wrote %d bytes.\n",
+                                    bytes_read, bytes_written);
+                        }
+                        // Gotta try again, I think?
+                        bytes_written = 0;
+                    case EBUSY:
+                    case EDEADLK:
+                    case EAGAIN:
+                    case ETXTBSY:
+                        ++stats.interrupted_writes;
+                        break;
 
-            stats.total_bytes += bytes_written;
-            stats.bytes_since += bytes_written;
+                    case EPIPE:
+                        // Shit! Nobody's reading, but we already took the data
+                        // from stdin. Now it's lost, I guess. Oh well.
+                        bytes_read = 0;
+                        done = 1;
+                        break;
 
-            if (bytes_written == bytes_read) {
-                bytes_read = 0;
-                buff_offset = 0;
-            } else if (bytes_written > 0) {
-                bytes_read -= bytes_written;
-                buff_offset += bytes_written;
+                    default:
+                        ++stats.num_errors;
+                        if (!options.ignore_errors) {
+                            fprintf(stderr, "Got err %d during a write: %s\n",
+                                    errno, strerror(errno));
+                            abort();
+                        }
+                    }
 
-                // Only pay attention to partial writes. When nothing was
-                // written, that could be cuz of an error.
-                ++stats.underwrites;
-                stats.underwritten_bytes += (bytes_read - bytes_written);
+                    clearerr(stdout);
+                }
+
+                // Cool, error checking out of the way, do some accounting.
+
+                stats.total_bytes += bytes_written;
+                stats.bytes_since += bytes_written;
+
+                if (bytes_written == bytes_read) {
+                    bytes_read = 0;
+                    buff_offset = 0;
+                } else if (bytes_written > 0) {
+                    bytes_read -= bytes_written;
+                    buff_offset += bytes_written;
+
+                    // Only pay attention to partial writes. When nothing was
+                    // written, that could be cuz of an error.
+                    ++stats.underwrites;
+                    stats.underwritten_bytes += (bytes_read - bytes_written);
+                }
             }
         } else {
             // Make sure not to clear a done flag from some other reason.
@@ -337,7 +350,7 @@ int read_options(int argc, char** argv) {
 }
 
 
-int setup() {
+int setup(struct timeval* report_interval) {
     struct itimerval interval_timer;
     struct sigaction interval_action;
     struct sigaction cleanup_action;
@@ -371,32 +384,15 @@ int setup() {
         clearerr(stdout);
     }
 
+    // Timing for report.
+    report_interval->tv_sec = (int) options.freq;
+    report_interval->tv_usec =
+        (options.freq - ((int) options.freq)) * (1000 * 1000);
+
     // Init stats.
     memset(&stats, 0, sizeof(Stats));
     gettimeofday(&stats.start, NULL);
     stats.last_report = stats.start;
-
-    // Init timer. Use a timer instead of reporting in the main loop so we
-    // can use blocking reads (while reporting consistently), instead of
-    // a wasteful tight loop.
-    if (options.freq > 0) {
-        interval_timer.it_interval.tv_sec = (int) options.freq;
-        interval_timer.it_interval.tv_usec =
-            (options.freq- ((int) options.freq)) * (1000 * 1000);
-        interval_timer.it_value = interval_timer.it_interval;
-
-        memset(&interval_action, 0, sizeof(struct sigaction));
-        interval_action.sa_handler = &interval;
-        interval_action.sa_flags = SA_RESTART;
-        if (sigaction(SIGALRM, &interval_action, NULL) != 0) {
-            fprintf(stderr, "Failed to set up timer handler.\n");
-            return -1;
-        }
-        if (setitimer(ITIMER_REAL, &interval_timer, NULL) != 0) {
-            fprintf(stderr, "Failed to start timer.\n");
-            return -1;
-        }
-    }
 
     // Set up handler for exiting, to print a final report, even if aborted.
     memset(&cleanup_action, 0, sizeof(struct sigaction));
@@ -475,25 +471,27 @@ void print_report() {
     struct timeval now;
     double elapsed;
 
-    double data_amount_since = adjust_unit(stats.bytes_since, options.unit);
-    const char* data_amount_since_unit = unit_name(stats.bytes_since, options.unit);
-
-    double data_amount_total = adjust_unit(stats.total_bytes, options.unit);
-    const char* data_amount_total_unit = unit_name(stats.total_bytes, options.unit);
-
     gettimeofday(&now, NULL);
     elapsed = elapsed_sec(&now, &stats.last_report);
 
-    fprintf(stderr,
-            "%3.2f %s/s, "
-            "%3.2f %s total, "
-            "%3.2f %s since last report\n",
-            data_amount_since / elapsed, data_amount_since_unit,
-            data_amount_total, data_amount_total_unit,
-            data_amount_since, data_amount_since_unit);
+    if (elapsed >= options.freq) {
+        double data_amount_since = adjust_unit(stats.bytes_since, options.unit);
+        const char* data_amount_since_unit = unit_name(stats.bytes_since, options.unit);
 
-    stats.bytes_since = 0;
-    stats.last_report = now;
+        double data_amount_total = adjust_unit(stats.total_bytes, options.unit);
+        const char* data_amount_total_unit = unit_name(stats.total_bytes, options.unit);
+
+        fprintf(stderr,
+                "%3.2f %s/s, "
+                "%3.2f %s total, "
+                "%3.2f %s since last report\n",
+                data_amount_since / elapsed, data_amount_since_unit,
+                data_amount_total, data_amount_total_unit,
+                data_amount_since, data_amount_since_unit);
+
+        stats.bytes_since = 0;
+        stats.last_report = now;
+    }
 }
 
 
@@ -557,11 +555,6 @@ void print_final_report() {
             }
         }
     }
-}
-
-
-void interval(int signal) {
-    should_report = 1;
 }
 
 
