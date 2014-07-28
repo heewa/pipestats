@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
                 done = (data == EOF);
             */
             } else {
-                ++stats.num_read_errors_by_code[errno];
+                ++stats.num_read_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
 
                 // Use a switch statement so it doesn't check each of many
                 // conditions that we can safely ignore.
@@ -197,7 +197,7 @@ int main(int argc, char** argv) {
 
             // Regardless of write result, check for errors.
             if (ferror(stdout) != 0) {
-                ++stats.num_write_errors_by_code[errno];
+                ++stats.num_write_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
 
                 // Use a switch statement so it doesn't check each of many
                 // conditions that we can safely ignore.
