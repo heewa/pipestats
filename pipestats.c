@@ -159,6 +159,8 @@ int main(int argc, char** argv) {
                     }
                     break;
                 }
+
+                clearerr(stdin);
             }
         } else if (bytes_read < 0) {
             if (!options.ignore_errors) {
@@ -203,6 +205,12 @@ int main(int argc, char** argv) {
                 // conditions that we can safely ignore.
                 switch (errno) {
                 case EINTR:
+                    if (options.verbose) {
+                        fprintf(stderr,
+                                "\tGot EINTR when trying to write %d bytes, "
+                                "and told we wrote %d bytes.\n",
+                                bytes_read, bytes_written);
+                    }
                 case EBUSY:
                 case EDEADLK:
                 case EAGAIN:
@@ -225,6 +233,8 @@ int main(int argc, char** argv) {
                         abort();
                     }
                 }
+
+                clearerr(stdout);
             }
 
             // Cool, error checking out of the way, do some accounting.
@@ -402,6 +412,7 @@ int setup() {
 
         memset(&interval_action, 0, sizeof(struct sigaction));
         interval_action.sa_handler = &interval;
+        interval_action.sa_flags = SA_RESTART;
         if (sigaction(SIGALRM, &interval_action, NULL) != 0) {
             fprintf(stderr, "Failed to set up timer handler.\n");
             return -1;
@@ -415,6 +426,7 @@ int setup() {
     // Set up handler for exiting, to print a final report, even if aborted.
     memset(&cleanup_action, 0, sizeof(struct sigaction));
     cleanup_action.sa_handler = &cleanup;
+    cleanup_action.sa_flags = SA_RESTART;
     for (i=sizeof(abort_signals) / sizeof(abort_signals[0]) - 1; i >= 0; --i) {
         if (sigaction(abort_signals[i], &cleanup_action, NULL) != 0) {
             fprintf(stderr, "Failed to set cleanup handler for sig %d.\n",
