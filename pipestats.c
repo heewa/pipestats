@@ -20,9 +20,12 @@ typedef struct Stats {
     struct timeval start;
 
     unsigned int num_errors;
+
     unsigned int underwrites;
     unsigned int underwritten_bytes;
     unsigned int interrupted_writes;
+
+    unsigned int interrupted_reads;
 } Stats;
 Stats stats;
 
@@ -120,6 +123,7 @@ int main(int argc, char** argv) {
                 case EDEADLK:
                 case EAGAIN:
                 case ETXTBSY:
+                    ++stats.interrupted_reads;
                     break;
 
                 case EPIPE:
@@ -507,6 +511,10 @@ void print_final_report() {
     if (stats.interrupted_writes > 0) {
         fprintf(stderr, "Got interrupted during a write %d times.\n",
                 stats.interrupted_writes);
+    }
+    if (stats.interrupted_reads > 0) {
+        fprintf(stderr, "Got interrupted during a read %d times.\n",
+                stats.interrupted_reads);
     }
 }
 
