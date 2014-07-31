@@ -57,7 +57,6 @@ typedef struct Options {
 Options options;
 
 
-static volatile sig_atomic_t should_report = 0;
 static volatile sig_atomic_t done = 0;
 
 
@@ -351,8 +350,6 @@ int read_options(int argc, char** argv) {
 
 
 int setup(struct timeval* report_interval) {
-    struct itimerval interval_timer;
-    struct sigaction interval_action;
     struct sigaction cleanup_action;
     int abort_signals[] = {SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGPIPE, SIGTERM};
     int i;
