@@ -124,6 +124,7 @@ int main(int argc, char** argv) {
                     case EAGAIN:
                     case ETXTBSY:
                         ++stats.interrupted_reads;
+                        clearerr(stdin);
                         break;
 
                     case EPIPE:
@@ -140,15 +141,11 @@ int main(int argc, char** argv) {
 
                     default:
                         ++stats.num_errors;
-                        if (!options.ignore_errors) {
-                            fprintf(stderr, "Got err %d during a read: %s\n",
-                                    errno, strerror(errno));
-                            abort();
-                        }
+                        fprintf(stderr, "Got err %d during a read: %s\n",
+                                errno, strerror(errno));
+                        done = 1;
                         break;
                     }
-
-                    clearerr(stdin);
                 }
             }
         } else if (bytes_read < 0) {
@@ -202,6 +199,7 @@ int main(int argc, char** argv) {
                     case EAGAIN:
                     case ETXTBSY:
                         ++stats.interrupted_writes;
+                        clearerr(stdout);
                         break;
 
                     case EPIPE:
@@ -213,14 +211,10 @@ int main(int argc, char** argv) {
 
                     default:
                         ++stats.num_errors;
-                        if (!options.ignore_errors) {
-                            fprintf(stderr, "Got err %d during a write: %s\n",
-                                    errno, strerror(errno));
-                            abort();
-                        }
+                        fprintf(stderr, "Got err %d during a write: %s\n",
+                                errno, strerror(errno));
+                        done = 1;
                     }
-
-                    clearerr(stdout);
                 }
 
                 // Cool, error checking out of the way, do some accounting.
