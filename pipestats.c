@@ -109,7 +109,15 @@ int main(int argc, char** argv) {
             FD_ZERO(&set);
             FD_SET(STDIN_FILENO, &set);
             if (select(FD_SETSIZE, &set, NULL, NULL, &report_interval) > 0) {
+#ifdef BLOCK_READ
                 bytes_read = fread(buff, 1, BUF_SIZE, stdin);
+#else
+                int input;
+
+                while (bytes_read < BUF_SIZE && (input = getc_unlocked(stdin)) != EOF) {
+                    buff[bytes_read++] = input;
+                }
+#endif
                 stats.bytes_read += bytes_read;
 
                 if (ferror(stdin) != 0) {
@@ -163,11 +171,18 @@ int main(int argc, char** argv) {
             FD_ZERO(&set);
             FD_SET(STDOUT_FILENO, &set);
             if (select(FD_SETSIZE, NULL, &set, NULL, &report_interval) > 0) {
-                int bytes_written;
+                int bytes_written = 0;
 
-                // But first update counters, cuz we might report white this is
-                // going out to the buffer? Is that sound logic? woof!
+#ifdef BLOCK_WRITE
                 bytes_written = fwrite(buff + buff_offset, 1, bytes_read, stdout);
+#else
+                int output;
+
+                while (bytes_written < bytes_read &&
+                       (output = putc_unlocked(buff[buff_offset + bytes_written], stdout)) != EOF) {
+                    ++bytes_written;
+                }
+#endif
 
                 // Sigh, check some stupid scenarios.
                 if (bytes_read < 0 || bytes_written < 0 || bytes_written > bytes_read) {
@@ -361,6 +376,11 @@ int setup(struct timeval* report_interval) {
                 "Warning: failed to put stdout in nonblocking mode. "
                 "Reporting might not be consistently on time.\n");
     }
+
+    // Nobody but the main thread uses stdin & stdout, so lock them so we can
+    // use unlocked io functions.
+    flockfile(stdin);
+    flockfile(stdout);
 
     if ((err = ferror(stdin)) != 0) {
         fprintf(stderr,
