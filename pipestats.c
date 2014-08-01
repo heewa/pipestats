@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/types.h>
+#include <stdint.h>
 
 #define BUF_SIZE (1024)
 #define MAX_ERR_CODE (256)
@@ -53,6 +54,7 @@ typedef struct Options {
     int blocking;
     int ignore_errors;
     int verbose;
+    int verify;
 } Options;
 Options options;
 
@@ -81,6 +83,9 @@ int main(int argc, char** argv) {
     size_t buff_offset = 0;
     int r;
     int bytes_read = 0;
+    uint32_t verify_previous_num = -1;
+    char verify_current_num[4];
+    int verify_current_pos = 0;
     struct timeval report_interval;
     char buff[BUF_SIZE];
 
@@ -119,6 +124,28 @@ int main(int argc, char** argv) {
                 }
 #endif
                 stats.bytes_read += bytes_read;
+
+                if (options.verify) {
+                    int i;
+
+                    for (i=0; i < bytes_read; ++i) {
+                        verify_current_num[verify_current_pos++] = buff[i];
+                        if (verify_current_pos == 4) {
+                            uint32_t current = *((uint32_t*) verify_current_num);
+
+                            if (current != verify_previous_num + 1) {
+                                fprintf(stderr,
+                                        "Bad number in sequence. Expected %d, read %d.\n",
+                                        verify_previous_num + 1,
+                                        current);
+                                abort();
+                            }
+
+                            ++verify_previous_num;
+                            verify_current_pos = 0;
+                        }
+                    }
+                }
 
                 if (ferror(stdin) != 0) {
                     ++stats.num_read_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
@@ -275,6 +302,7 @@ int read_options(int argc, char** argv) {
         {"freq", required_argument, NULL, 'f'},
         {"blocking-io", no_argument, NULL, 'b'},
         {"ignore-errors", no_argument, NULL, 'i'},
+        {"verify", no_argument, NULL, 'V'},
         {0, 0, 0, 0}
     };
 
@@ -288,7 +316,7 @@ int read_options(int argc, char** argv) {
     while (opt != -1) {
         int option_index = 0;
 
-        opt = getopt_long(argc, argv, "hvHBKMGf:b", long_options, &option_index);
+        opt = getopt_long(argc, argv, "hvHBKMGf:bV", long_options, &option_index);
         switch (opt) {
         case -1:
             break;
@@ -346,6 +374,10 @@ int read_options(int argc, char** argv) {
 
         case '?':
             return -1;
+            break;
+
+        case 'V':
+            options.verify = 1;
             break;
 
         default:
