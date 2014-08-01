@@ -124,18 +124,11 @@ int main(int argc, char** argv) {
             FD_ZERO(&set);
             FD_SET(STDIN_FILENO, &set);
             if (select(FD_SETSIZE, &set, NULL, NULL, &report_interval) > 0) {
-#ifdef BLOCK_READ
                 bytes_read = fread(buff, 1, BUF_SIZE, stdin);
-#else
-                int input;
 
-                while (bytes_read < BUF_SIZE && (input = getc_unlocked(stdin)) != EOF) {
-                    buff[bytes_read++] = input;
-                }
-#endif
                 stats.bytes_read += bytes_read;
-                check_read_errors();
 
+                check_read_errors();
                 if (options.verify) {
                     verify_data(&verify_state, buff + buff_offset, bytes_read);
                 }
@@ -148,18 +141,7 @@ int main(int argc, char** argv) {
             FD_ZERO(&set);
             FD_SET(STDOUT_FILENO, &set);
             if (select(FD_SETSIZE, NULL, &set, NULL, &report_interval) > 0) {
-                int bytes_written = 0;
-
-#ifdef BLOCK_WRITE
-                bytes_written = fwrite(buff + buff_offset, 1, bytes_read, stdout);
-#else
-                int output;
-
-                while (bytes_written < bytes_read &&
-                       (output = putc_unlocked(buff[buff_offset + bytes_written], stdout)) != EOF) {
-                    ++bytes_written;
-                }
-#endif
+                int bytes_written = fwrite(buff + buff_offset, 1, bytes_read, stdout);
 
                 stats.total_bytes += bytes_written;
                 stats.bytes_since += bytes_written;
@@ -184,13 +166,14 @@ int main(int argc, char** argv) {
         } else {
             // Make sure not to clear a done flag from some other reason.
             done = done || feof(stdin);
+
+            // Good time to proactively ask for a flush, cuz maybe there isn't
+            // much happening (since we haven't read anything). But don't
+            // bother trying multiple times if it fails, it's just kinda a
+            // nice time.
+            fflush(stdout);
         }
     }
-
-    // Nobody but the main thread uses stdin & stdout, so lock them so we can
-    // use unlocked io functions.
-    funlockfile(stdin);
-    funlockfile(stdout);
 
     // Just for timing niceness, flush buffers before printing report.
     done = 0;
@@ -458,26 +441,6 @@ int setup(struct timeval* report_interval) {
         fprintf(stderr,
                 "Warning: failed to put stdout in nonblocking mode. "
                 "Reporting might not be consistently on time.\n");
-    }
-
-    // Nobody but the main thread uses stdin & stdout, so lock them so we can
-    // use unlocked io functions.
-    flockfile(stdin);
-    flockfile(stdout);
-
-    if (options.verbose) {
-        fprintf(stderr, "Using %s reads, %s writes.\n",
-#ifdef BLOCK_READ
-                "block",
-#else
-                "single-byte",
-#endif
-#ifdef BLOCK_WRITE
-                "block"
-#else
-                "single-byte"
-#endif
-               );
     }
 
     if ((err = ferror(stdin)) != 0) {
