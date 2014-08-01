@@ -425,6 +425,7 @@ int read_options(int argc, char** argv) {
 
 int setup(struct timeval* report_interval) {
     struct sigaction cleanup_action;
+    double half_freq;
     int abort_signals[] = {SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGPIPE, SIGTERM};
     int i;
     int err;
@@ -476,9 +477,10 @@ int setup(struct timeval* report_interval) {
     }
 
     // Timing for report.
-    report_interval->tv_sec = (int) options.freq;
+    half_freq = options.freq / 2.0;
+    report_interval->tv_sec = (int) half_freq;
     report_interval->tv_usec =
-        (options.freq - ((int) options.freq)) * (1000 * 1000);
+        (half_freq - ((int) half_freq)) * (1000 * 1000);
 
     // Init stats.
     memset(&stats, 0, sizeof(Stats));
