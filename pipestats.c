@@ -112,9 +112,7 @@ int main(int argc, char** argv) {
     }
 
     while (bytes_read > 0 || !done) {
-        if (options.freq > 0) {
-            print_report();
-        }
+        print_report();
 
         // Only read more if we've already written everything we already had.
         if (bytes_read == 0) {
@@ -563,6 +561,10 @@ const char* unit_name(double bytes, Unit target_unit) {
 void print_report() {
     struct timeval now;
     double elapsed;
+
+    if (options.freq <= 0) {
+        return;
+    }
 
     gettimeofday(&now, NULL);
     elapsed = elapsed_sec(&now, &stats.last_report);
