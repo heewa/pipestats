@@ -193,8 +193,27 @@ int main(int argc, char** argv) {
     funlockfile(stdout);
 
     // Just for timing niceness, flush buffers before printing report.
-    fflush(stdout);
-    fclose(stdout);
+    done = 0;
+    while (!done && fflush(stdout) != 0) {
+        switch (errno) {
+        case EINTR:
+        case EBUSY:
+        case EDEADLK:
+        case EAGAIN:
+        case ETXTBSY:
+            // Keep trying.
+            ++stats.interrupted_writes;
+            clearerr(stdout);
+            break;
+
+        default:
+            ++stats.num_errors;
+            done = 1;
+            fprintf(stderr, "Failed to flush stdout, err %d: %s\n",
+                    errno, strerror(errno));
+            break;
+        }
+    }
 
     print_final_report();
 
