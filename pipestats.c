@@ -72,6 +72,18 @@ int read_options();
 int setup();
 
 
+void check_read_errors();
+int check_write_errors();
+
+
+typedef struct VerifyState {
+    uint32_t previous;
+    char current[4];
+    int pos;
+} VerifyState;
+void verify_data(VerifyState* v, char* buff, size_t bytes_read);
+
+
 void print_report();
 void print_final_report();
 
@@ -83,13 +95,13 @@ int main(int argc, char** argv) {
     size_t buff_offset = 0;
     int r;
     int bytes_read = 0;
-    uint32_t verify_previous_num = -1;
-    char verify_current_num[4];
-    int verify_current_pos = 0;
+    VerifyState verify_state;
     struct timeval report_interval;
     char buff[BUF_SIZE];
 
     done = 0;
+    verify_state.previous = -1;
+    verify_state.pos = 0;
 
     if ((r = read_options(argc, argv)) != 0) {
         return r;
@@ -124,72 +136,12 @@ int main(int argc, char** argv) {
                 }
 #endif
                 stats.bytes_read += bytes_read;
+                check_read_errors();
 
                 if (options.verify) {
-                    int i;
-
-                    for (i=0; i < bytes_read; ++i) {
-                        verify_current_num[verify_current_pos++] = buff[i];
-                        if (verify_current_pos == 4) {
-                            uint32_t current = *((uint32_t*) verify_current_num);
-
-                            if (current != verify_previous_num + 1) {
-                                fprintf(stderr,
-                                        "Bad number in sequence. Expected %d, read %d.\n",
-                                        verify_previous_num + 1,
-                                        current);
-                                abort();
-                            }
-
-                            ++verify_previous_num;
-                            verify_current_pos = 0;
-                        }
-                    }
-                }
-
-                if (ferror(stdin) != 0) {
-                    ++stats.num_read_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
-
-                    // Use a switch statement so it doesn't check each of many
-                    // conditions that we can safely ignore.
-                    switch (errno) {
-                    case EINTR:
-                    case EBUSY:
-                    case EDEADLK:
-                    case EAGAIN:
-                    case ETXTBSY:
-                        ++stats.interrupted_reads;
-                        clearerr(stdin);
-                        break;
-
-                    case EPIPE:
-                        // Inform user, but nobody's writing anymore, so there's
-                        // nothing left to read. Don't abort right away, finish
-                        // writing the rest.
-                        if (!options.ignore_errors) {
-                            fprintf(stderr,
-                                    "Broken pipe on stdin, will finish writing "
-                                    "and exit.\n");
-                        }
-                        done = 1;
-                        break;
-
-                    default:
-                        ++stats.num_errors;
-                        fprintf(stderr, "Got err %d during a read: %s\n",
-                                errno, strerror(errno));
-                        done = 1;
-                        break;
-                    }
+                    verify_data(&verify_state, buff + buff_offset, bytes_read);
                 }
             }
-        } else if (bytes_read < 0) {
-            if (!options.ignore_errors) {
-                fprintf(stderr, "Somehow got to negative bytes read: %d\n",
-                        bytes_read);
-                abort();
-            }
-            bytes_read = 0;
         }
 
         if (bytes_read > 0) {
@@ -211,58 +163,12 @@ int main(int argc, char** argv) {
                 }
 #endif
 
-                // Sigh, check some stupid scenarios.
-                if (bytes_read < 0 || bytes_written < 0 || bytes_written > bytes_read) {
-                    fprintf(stderr, "\tWeird case: read %d bytes, wrote %d bytes.\n",
-                            bytes_read, bytes_written);
-                    if (!options.ignore_errors) {
-                        abort();
-                    }
-                }
-
-                // Regardless of write result, check for errors.
-                if (ferror(stdout) != 0) {
-                    ++stats.num_write_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
-
-                    // Use a switch statement so it doesn't check each of many
-                    // conditions that we can safely ignore.
-                    switch (errno) {
-                    case EINTR:
-                        if (options.verbose) {
-                            fprintf(stderr,
-                                    "\tGot EINTR when trying to write %d bytes, "
-                                    "and told we wrote %d bytes.\n",
-                                    bytes_read, bytes_written);
-                        }
-                        // Gotta try again, I think?
-                        bytes_written = 0;
-                    case EBUSY:
-                    case EDEADLK:
-                    case EAGAIN:
-                    case ETXTBSY:
-                        ++stats.interrupted_writes;
-                        clearerr(stdout);
-                        break;
-
-                    case EPIPE:
-                        // Shit! Nobody's reading, but we already took the data
-                        // from stdin. Now it's lost, I guess. Oh well.
-                        bytes_read = 0;
-                        done = 1;
-                        break;
-
-                    default:
-                        ++stats.num_errors;
-                        fprintf(stderr, "Got err %d during a write: %s\n",
-                                errno, strerror(errno));
-                        done = 1;
-                    }
-                }
-
-                // Cool, error checking out of the way, do some accounting.
-
                 stats.total_bytes += bytes_written;
                 stats.bytes_since += bytes_written;
+
+                if (check_write_errors(bytes_read, bytes_written) != 0) {
+                    bytes_read = 0;
+                }
 
                 if (bytes_written == bytes_read) {
                     bytes_read = 0;
@@ -283,6 +189,11 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Nobody but the main thread uses stdin & stdout, so lock them so we can
+    // use unlocked io functions.
+    funlockfile(stdin);
+    funlockfile(stdout);
+
     // Just for timing niceness, flush buffers before printing report.
     fflush(stdout);
     fclose(stdout);
@@ -290,6 +201,128 @@ int main(int argc, char** argv) {
     print_final_report();
 
     return 0;
+}
+
+
+void check_read_errors() {
+    if (ferror(stdin) == 0) {
+        return;
+    }
+
+    ++stats.num_read_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
+
+    switch (errno) {
+    case EINTR:
+    case EBUSY:
+    case EDEADLK:
+    case EAGAIN:
+    case ETXTBSY:
+        ++stats.interrupted_reads;
+        clearerr(stdin);
+        break;
+
+    case EPIPE:
+        // Inform user, but nobody's writing anymore, so there's
+        // nothing left to read. Don't abort right away, finish
+        // writing the rest.
+        if (!options.ignore_errors) {
+            fprintf(stderr,
+                    "Broken pipe on stdin, will finish writing "
+                    "and exit.\n");
+        }
+        done = 1;
+        break;
+
+    default:
+        ++stats.num_errors;
+        fprintf(stderr, "Got err %d during a read: %s\n",
+                errno, strerror(errno));
+        done = 1;
+        break;
+    }
+}
+
+
+int check_write_errors(int bytes_read, int bytes_written) {
+    int err = 0;
+
+    if (ferror(stdout) == 0) {
+        return 0;
+    }
+
+    ++stats.num_write_errors_by_code[(errno <= MAX_ERR_CODE ? errno : MAX_ERR_CODE)];
+
+    // Sigh, check some stupid scenarios.
+    if (bytes_read < 0 || bytes_written < 0 || bytes_written > bytes_read) {
+        fprintf(stderr, "\tWeird case: read %d bytes, wrote %d bytes.\n",
+                bytes_read, bytes_written);
+        done = 1;
+        err = 1;
+    }
+
+    switch (errno) {
+    case EINTR:
+        if (options.verbose) {
+            fprintf(stderr,
+                    "\tGot EINTR when trying to write %d bytes, "
+                    "and told we wrote %d bytes.\n",
+                    bytes_read, bytes_written);
+        }
+        // Gotta try again, I think?
+        //bytes_written = 0;
+        err = 1;
+        done = 1;
+        break;
+
+    case EBUSY:
+    case EDEADLK:
+    case EAGAIN:
+    case ETXTBSY:
+        ++stats.interrupted_writes;
+        clearerr(stdout);
+        break;
+
+    case EPIPE:
+        // Shit! Nobody's reading, but we already took the data
+        // from stdin. Now it's lost, I guess. Oh well.
+        ++stats.num_errors;
+        err = 1;
+        done = 1;
+        break;
+
+    default:
+        ++stats.num_errors;
+        fprintf(stderr, "Got err %d during a write: %s\n",
+                errno, strerror(errno));
+        done = 1;
+        err = 1;
+        break;
+    }
+
+    return err;
+}
+
+
+void verify_data(VerifyState* v, char* buff, size_t bytes_read) {
+    int i;
+
+    for (i=0; i < bytes_read; ++i) {
+        v->current[v->pos++] = buff[i];
+        if (v->pos == 4) {
+            uint32_t current = *((uint32_t*) v->current);
+
+            if (current != v->previous + 1) {
+                fprintf(stderr,
+                        "Bad number in sequence. Expected %d, read %d.\n",
+                        v->previous + 1,
+                        current);
+                abort();
+            }
+
+            ++v->previous;
+            v->pos = 0;
+        }
+    }
 }
 
 
@@ -413,6 +446,21 @@ int setup(struct timeval* report_interval) {
     // use unlocked io functions.
     flockfile(stdin);
     flockfile(stdout);
+
+    if (options.verbose) {
+        fprintf(stderr, "Using %s reads, %s writes.\n",
+#ifdef BLOCK_READ
+                "block",
+#else
+                "single-byte",
+#endif
+#ifdef BLOCK_WRITE
+                "block"
+#else
+                "single-byte"
+#endif
+               );
+    }
 
     if ((err = ferror(stdin)) != 0) {
         fprintf(stderr,
