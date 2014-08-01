@@ -1,6 +1,7 @@
 # Project specific files.
 /pipestats
 /generate_pattern
+/sequential_bytes
 
 # Editor temp files
 .*.swp

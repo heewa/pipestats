@@ -8,12 +8,15 @@ LDFLAGS=
 
 all: pipestats misc
 
-misc: generate_pattern
+misc: generate_pattern sequential_bytes
 
 pipestats: pipestats.c
-	gcc $(CFLAGS) $(LDFLAGS) pipestats.c -o $@
+	gcc $(CFLAGS) $(LDFLAGS) $(XFLAGS) pipestats.c -o $@
 
 generate_pattern: misc/generate_pattern.c
+	gcc $(CFLAGS) $(LDFLAGS) $< -o $@
+
+sequential_bytes: misc/sequential_bytes.c
 	gcc $(CFLAGS) $(LDFLAGS) $< -o $@
 
 clean:
