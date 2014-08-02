@@ -14,6 +14,7 @@
 
 
 #include "units.h"
+#include "time_estimate.h"
 
 
 #define BUF_SIZE (4092)
@@ -356,19 +357,38 @@ void print_report() {
     elapsed = elapsed_sec(&now, &stats.last_report);
 
     if (elapsed >= options.freq) {
+        TimeEstimate time;
+        double milestone_amount;
+        const char* milestone_amount_unit;
+
         double data_amount_since = adjust_unit(stats.bytes_since, options.unit);
         const char* data_amount_since_unit = unit_name(stats.bytes_since, options.unit);
 
         double data_amount_total = adjust_unit(stats.total_bytes, options.unit);
         const char* data_amount_total_unit = unit_name(stats.total_bytes, options.unit);
 
+        // If stuff's moving, use current speed, to be optimistic about the
+        // current conditions. Otherwise use total avg speed, which is more
+        // realistic if things keep pausing.
+        estimate_time(&time,
+                      stats.total_bytes,
+                      stats.bytes_since > 0 ?
+                        stats.bytes_since / elapsed :
+                        stats.total_bytes / elapsed_sec(&now, &stats.start));
+        milestone_amount = adjust_unit(time.milestone_bytes, options.unit);
+        milestone_amount_unit = unit_name(time.milestone_bytes, options.unit);
+
         fprintf(stderr,
-                "%3.2f %s/s, "
-                "%3.2f %s total, "
-                "%3.2f %s since last report\n",
+                "%3.2f %s/s"
+                ", %3.2f %s total"
+                ", %3.2f %s since last report"
+                ", %3.2f %s until %3.2f %s"
+                "\n",
                 data_amount_since / elapsed, data_amount_since_unit,
                 data_amount_total, data_amount_total_unit,
-                data_amount_since, data_amount_since_unit);
+                data_amount_since, data_amount_since_unit,
+                time.time_remaining, time.time_unit,
+                milestone_amount, milestone_amount_unit);
 
         stats.bytes_since = 0;
         stats.last_report = now;

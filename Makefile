@@ -1,6 +1,6 @@
 
-SOURCES=pipestats.c units.c
-HEADERS=units.h
+SOURCES=pipestats.c units.c time_estimate.c
+HEADERS=units.h time_estimate.h
 
 ifeq ($(DEBUG), )
     CFLAGS=-Wall -O3
