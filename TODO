@@ -1,8 +1,0 @@
-* more stats?
-  * estimated time to next milestone (1mb, 10mb, 100mb, etc)
-  * num lines & line speed
-  * byte histogram (at the end only?)
-  * bps
-  * progress
-  * estimated time
-* option for progress bar, given expected total
