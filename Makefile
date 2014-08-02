@@ -1,4 +1,7 @@
 
+SOURCES=pipestats.c units.c
+HEADERS=units.h
+
 ifeq ($(DEBUG), )
     CFLAGS=-Wall -O3
 else
@@ -6,18 +9,30 @@ else
 endif
 LDFLAGS=
 
+CC=gcc
+
+BUILD_DIR=build
+OBJECTS=$(SOURCES:%.c=$(BUILD_DIR)/%.o)
+
 all: pipestats misc
 
 misc: generate_pattern sequential_bytes
 
-pipestats: pipestats.c
-	gcc $(CFLAGS) $(LDFLAGS) $(XFLAGS) pipestats.c -o $@
+pipestats: $(OBJECTS)
+	$(CC) $(LDFLAGS) $(XFLAGS) $(OBJECTS) -o $@
 
 generate_pattern: misc/generate_pattern.c
-	gcc $(CFLAGS) $(LDFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) $< -o $@
 
 sequential_bytes: misc/sequential_bytes.c
-	gcc $(CFLAGS) $(LDFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) $< -o $@
+
+# All objects depend on all headers, cuz hard to figure out dependency.
+$(OBJECTS): $(BUILD_DIR)/%.o: %.c $(HEADERS) $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(XFLAGS) -c $< -o $@
+
+$(BUILD_DIR):
+	/bin/mkdir -v $(BUILD_DIR)
 
 clean:
-	rm -f pipestats generate_pattern
+	rm -f pipestats generate_pattern sequential_bytes $(OBJECTS)

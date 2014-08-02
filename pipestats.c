@@ -13,6 +13,9 @@
 #include <stdint.h>
 
 
+#include "units.h"
+
+
 #define BUF_SIZE (4092)
 
 
@@ -24,15 +27,6 @@ typedef struct Stats {
     struct timeval start;
 } Stats;
 Stats stats;
-
-
-typedef enum Unit {
-    Human = 0,
-    Bytes = 1,
-    Kilobytes = 1024,
-    Megabytes = 1024 * 1024,
-    Gigabytes = 1024 * 1024 * 1024,
-} Unit;
 
 
 typedef struct Options {
@@ -48,9 +42,6 @@ static volatile sig_atomic_t done = 0;
 
 
 double elapsed_sec(struct timeval* end, struct timeval* start);
-double adjust_unit(double bytes, Unit target_unit);
-const char* unit_name(double bytes, Unit target_unit);
-Unit find_unit(double bytes);
 
 
 int read_options();
@@ -350,56 +341,6 @@ double elapsed_sec(struct timeval* end, struct timeval* start) {
     double sec = end->tv_sec - start->tv_sec;
     double usec = end->tv_usec - start->tv_usec;
     return sec + usec / (1000 * 1000);
-}
-
-
-double adjust_unit(double bytes, Unit target_unit) {
-    if (target_unit != Human) {
-        return bytes / (double) target_unit;
-    }
-    return bytes / (double) find_unit(bytes);
-}
-
-
-Unit find_unit(double bytes) {
-    if (bytes >= Gigabytes) {
-        return Gigabytes;
-    } else if (bytes >= Megabytes) {
-        return Megabytes;
-    } else if (bytes >= Kilobytes) {
-        return Kilobytes;
-    }
-    return Bytes;
-}
-
-
-const char* unit_name(double bytes, Unit target_unit) {
-    if (target_unit == Human) {
-        target_unit = find_unit(bytes);
-    }
-
-    switch (target_unit) {
-    case Gigabytes:
-        return "GB";
-        break;
-
-    case Megabytes:
-        return "MB";
-        break;
-
-    case Kilobytes:
-        return "KB";
-        break;
-
-    case Bytes:
-        return "B";
-        break;
-
-    default:
-        break;
-    }
-
-    return "??";
 }
 
 
