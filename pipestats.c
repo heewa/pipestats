@@ -457,5 +457,11 @@ void print_final_report() {
 void cleanup(int signal) {
     fprintf(stderr, "\nGot signal %s, aborting early.\n",
             strsignal(signal));
+
+    if (done) {
+        // Already supposed to be done, just abort.
+        abort();
+    }
+
     done = 1;
 }
