@@ -12,8 +12,9 @@
 #include <sys/types.h>
 #include <stdint.h>
 
-#define BUF_SIZE (1024)
-#define MAX_ERR_CODE (256)
+
+#define BUF_SIZE (4092)
+
 
 typedef struct Stats {
     unsigned long int total_bytes;
