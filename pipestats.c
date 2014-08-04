@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <stdint.h>
+#include <ctype.h>
 
 
 #include "units.h"
@@ -26,6 +27,8 @@ typedef struct Stats {
 
     struct timeval last_report;
     struct timeval start;
+
+    unsigned long long byte_count[256];
 } Stats;
 
 
@@ -33,6 +36,7 @@ typedef struct Options {
     double freq;
     Unit unit;
     int blocking;
+    int counts;
 } Options;
 Options options;
 
@@ -108,6 +112,17 @@ int main(int argc, char** argv) {
                         err = errno;
                         break;
                     }
+                } else {
+                    int i;
+
+                    stats.total_bytes += bytes_read;
+                    stats.bytes_since += bytes_read;
+
+                    if (options.counts) {
+                        for (i=0; i < bytes_read; ++i) {
+                            ++stats.byte_count[(int) ((unsigned char) buff[i])];
+                        }
+                    }
                 }
             }
         }
@@ -119,9 +134,6 @@ int main(int argc, char** argv) {
             FD_SET(STDOUT_FILENO, &set);
             if (select(FD_SETSIZE, NULL, &set, NULL, &report_interval) > 0) {
                 int bytes_written = fwrite(buff + buff_offset, 1, bytes_read, stdout);
-
-                stats.total_bytes += bytes_written;
-                stats.bytes_since += bytes_written;
 
                 if (bytes_written == 0 && ferror(stdout) != 0) {
                     switch (errno) {
@@ -198,6 +210,7 @@ int read_options(int argc, char** argv) {
         {"human", no_argument, NULL, 'H'},
         {"freq", required_argument, NULL, 'f'},
         {"blocking-io", no_argument, NULL, 'b'},
+        {"counts", no_argument, NULL, 'c'},
         {0, 0, 0, 0}
     };
 
@@ -209,7 +222,7 @@ int read_options(int argc, char** argv) {
     while (opt != -1) {
         int option_index = 0;
 
-        opt = getopt_long(argc, argv, "hHBKMGf:bV", long_options, &option_index);
+        opt = getopt_long(argc, argv, "hHBKMGf:bc", long_options, &option_index);
         switch (opt) {
         case -1:
             break;
@@ -221,11 +234,16 @@ int read_options(int argc, char** argv) {
                    "    -H/--human           Human units (adjust based on amount).\n"
                    "    -[B|K|M|G]           Use Bytes, Kilobytes, Megabytes, or Gigabytes.\n"
                    "    -b/--blocking-io     Use blocking io.\n"
+                   "    -c/--counts          Report count per byte value at the end.\n"
                    "\n"
                    "pipestats reads from stdin, writes that input to stdout, "
                    "and reports stats about data transfered to stderr.\n",
                    argv[0]);
             return -1;
+            break;
+
+        case 'c':
+            options.counts = 1;
             break;
 
         case 'H':
@@ -395,12 +413,30 @@ void print_report(Stats* stats) {
 void print_final_report(Stats* stats) {
     struct timeval now;
     double elapsed;
+    int i;
 
     double data_amount = adjust_unit(stats->total_bytes, options.unit);
     const char* data_amount_unit = unit_name(stats->total_bytes, options.unit);
 
     gettimeofday(&now, NULL);
     elapsed = elapsed_sec(&now, &stats->start);
+
+    if (options.counts) {
+        fprintf(stderr, "Count of byte values:\n");
+        for (i=0; i < 256; ++i) {
+            int count = stats->byte_count[i];
+            double amount = adjust_unit(count, options.unit);
+            const char* unit = unit_name(count, options.unit);
+
+            fprintf(stderr, "   %c 0x%02X: %6.2f%s %5.2f%%%s",
+                    isprint(i) ? (char) i : ' ',
+                    i,
+                    amount,
+                    unit,
+                    100.0 * (double) count / stats->total_bytes,
+                    i % 4 == 3 || i == 255 ? "\n" : "");
+        }
+    }
 
     fprintf(stderr, "%3.2f %s (%lu bytes) total over %.2f sec, avg %.2f %s/s\n",
             data_amount, data_amount_unit,
