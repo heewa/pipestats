@@ -33,7 +33,6 @@ typedef struct Options {
     double freq;
     Unit unit;
     int blocking;
-    int verbose;
 } Options;
 Options options;
 
@@ -196,7 +195,6 @@ int read_options(int argc, char** argv) {
     int opt = 0;
     static struct option long_options[] = {
         {"help", no_argument, NULL, 'h'},
-        {"verbose", no_argument, NULL, 'v'},
         {"human", no_argument, NULL, 'H'},
         {"freq", required_argument, NULL, 'f'},
         {"blocking-io", no_argument, NULL, 'b'},
@@ -207,12 +205,11 @@ int read_options(int argc, char** argv) {
     options.freq = 2.0;
     options.unit = Human;
     options.blocking = 0;
-    options.verbose = 0;
 
     while (opt != -1) {
         int option_index = 0;
 
-        opt = getopt_long(argc, argv, "hvHBKMGf:bV", long_options, &option_index);
+        opt = getopt_long(argc, argv, "hHBKMGf:bV", long_options, &option_index);
         switch (opt) {
         case -1:
             break;
@@ -226,10 +223,6 @@ int read_options(int argc, char** argv) {
                    "and reports stats about data transfered to stderr.\n",
                    argv[0]);
             return -1;
-            break;
-
-        case 'v':
-            options.verbose = 1;
             break;
 
         case 'H':
