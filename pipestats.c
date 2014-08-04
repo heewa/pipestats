@@ -218,6 +218,9 @@ int read_options(int argc, char** argv) {
             printf("usage: %s [options]\n"
                    "\n"
                    "    -f/--freq SECONDS    Report frequency, 0 to disable.\n"
+                   "    -H/--human           Human units (adjust based on amount).\n"
+                   "    -[B|K|M|G]           Use Bytes, Kilobytes, Megabytes, or Gigabytes.\n"
+                   "    -b/--blocking-io     Use blocking io.\n"
                    "\n"
                    "pipestats reads from stdin, writes that input to stdout, "
                    "and reports stats about data transfered to stderr.\n",
