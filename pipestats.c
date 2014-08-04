@@ -448,13 +448,13 @@ void print_final_report(Stats* stats) {
 
 
 void cleanup(int signal) {
-    fprintf(stderr, "\nGot signal %s, aborting early.\n",
-            strsignal(signal));
-
     if (done) {
         // Already supposed to be done, just abort.
         abort();
     }
+
+    fprintf(stderr, "\nGot signal %s, aborting early.\n",
+            strsignal(signal));
 
     done = 1;
 }
