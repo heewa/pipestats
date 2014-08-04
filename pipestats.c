@@ -27,7 +27,6 @@ typedef struct Stats {
     struct timeval last_report;
     struct timeval start;
 } Stats;
-Stats stats;
 
 
 typedef struct Options {
@@ -46,15 +45,15 @@ double elapsed_sec(struct timeval* end, struct timeval* start);
 
 
 int read_options();
-int setup();
+int setup(Stats* stats, struct timeval* report_interval);
 
 
 void check_read_errors();
 int check_write_errors();
 
 
-void print_report();
-void print_final_report();
+void print_report(Stats* stats);
+void print_final_report(Stats* stats);
 
 
 void cleanup(int signal);
@@ -65,6 +64,7 @@ int main(int argc, char** argv) {
     int err = 0;
     int bytes_read = 0;
     struct timeval report_interval;
+    Stats stats;
     char buff[BUF_SIZE];
 
     done = 0;
@@ -73,12 +73,12 @@ int main(int argc, char** argv) {
         return err;
     }
 
-    if ((err = setup(&report_interval)) != 0) {
+    if ((err = setup(&stats, &report_interval)) != 0) {
         return err;
     }
 
     while (bytes_read > 0 || !done) {
-        print_report();
+        print_report(&stats);
 
         // Only read more if we've already written everything we already had.
         if (bytes_read == 0) {
@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    print_final_report();
+    print_final_report(&stats);
 
     return err;
 }
@@ -278,7 +278,7 @@ int read_options(int argc, char** argv) {
 }
 
 
-int setup(struct timeval* report_interval) {
+int setup(Stats* stats, struct timeval* report_interval) {
     struct sigaction cleanup_action;
     double half_freq;
     int abort_signals[] = {SIGHUP, SIGINT, SIGQUIT, SIGABRT, SIGPIPE, SIGTERM};
@@ -318,9 +318,9 @@ int setup(struct timeval* report_interval) {
         (half_freq - ((int) half_freq)) * (1000 * 1000);
 
     // Init stats.
-    memset(&stats, 0, sizeof(Stats));
-    gettimeofday(&stats.start, NULL);
-    stats.last_report = stats.start;
+    memset(stats, 0, sizeof(Stats));
+    gettimeofday(&stats->start, NULL);
+    stats->last_report = stats->start;
 
     // Set up handler for exiting, to print a final report, even if aborted.
     memset(&cleanup_action, 0, sizeof(struct sigaction));
@@ -345,7 +345,7 @@ double elapsed_sec(struct timeval* end, struct timeval* start) {
 }
 
 
-void print_report() {
+void print_report(Stats* stats) {
     struct timeval now;
     double elapsed;
 
@@ -354,27 +354,27 @@ void print_report() {
     }
 
     gettimeofday(&now, NULL);
-    elapsed = elapsed_sec(&now, &stats.last_report);
+    elapsed = elapsed_sec(&now, &stats->last_report);
 
     if (elapsed >= options.freq) {
         TimeEstimate time;
         double milestone_amount;
         const char* milestone_amount_unit;
 
-        double data_amount_since = adjust_unit(stats.bytes_since, options.unit);
-        const char* data_amount_since_unit = unit_name(stats.bytes_since, options.unit);
+        double data_amount_since = adjust_unit(stats->bytes_since, options.unit);
+        const char* data_amount_since_unit = unit_name(stats->bytes_since, options.unit);
 
-        double data_amount_total = adjust_unit(stats.total_bytes, options.unit);
-        const char* data_amount_total_unit = unit_name(stats.total_bytes, options.unit);
+        double data_amount_total = adjust_unit(stats->total_bytes, options.unit);
+        const char* data_amount_total_unit = unit_name(stats->total_bytes, options.unit);
 
         // If stuff's moving, use current speed, to be optimistic about the
         // current conditions. Otherwise use total avg speed, which is more
         // realistic if things keep pausing.
         estimate_time(&time,
-                      stats.total_bytes,
-                      stats.bytes_since > 0 ?
-                        stats.bytes_since / elapsed :
-                        stats.total_bytes / elapsed_sec(&now, &stats.start));
+                      stats->total_bytes,
+                      stats->bytes_since > 0 ?
+                        stats->bytes_since / elapsed :
+                        stats->total_bytes / elapsed_sec(&now, &stats->start));
         milestone_amount = adjust_unit(time.milestone_bytes, options.unit);
         milestone_amount_unit = unit_name(time.milestone_bytes, options.unit);
 
@@ -390,25 +390,25 @@ void print_report() {
                 time.time_remaining, time.time_unit,
                 milestone_amount, milestone_amount_unit);
 
-        stats.bytes_since = 0;
-        stats.last_report = now;
+        stats->bytes_since = 0;
+        stats->last_report = now;
     }
 }
 
 
-void print_final_report() {
+void print_final_report(Stats* stats) {
     struct timeval now;
     double elapsed;
 
-    double data_amount = adjust_unit(stats.total_bytes, options.unit);
-    const char* data_amount_unit = unit_name(stats.total_bytes, options.unit);
+    double data_amount = adjust_unit(stats->total_bytes, options.unit);
+    const char* data_amount_unit = unit_name(stats->total_bytes, options.unit);
 
     gettimeofday(&now, NULL);
-    elapsed = elapsed_sec(&now, &stats.start);
+    elapsed = elapsed_sec(&now, &stats->start);
 
     fprintf(stderr, "%3.2f %s (%lu bytes) total over %.2f sec, avg %.2f %s/s\n",
             data_amount, data_amount_unit,
-            stats.total_bytes,
+            stats->total_bytes,
             elapsed,
             data_amount / elapsed, data_amount_unit);
 
