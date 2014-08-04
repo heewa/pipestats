@@ -29,15 +29,15 @@ const char* unit_name(double bytes, Unit target_unit) {
 
     switch (target_unit) {
     case Gigabytes:
-        return "GB";
+        return "G";
         break;
 
     case Megabytes:
-        return "MB";
+        return "M";
         break;
 
     case Kilobytes:
-        return "KB";
+        return "K";
         break;
 
     case Bytes:
