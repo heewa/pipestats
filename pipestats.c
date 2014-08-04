@@ -339,7 +339,9 @@ int setup(Stats* stats, struct timeval* report_interval) {
     // Set up handler for exiting, to print a final report, even if aborted.
     memset(&cleanup_action, 0, sizeof(struct sigaction));
     cleanup_action.sa_handler = &cleanup;
-    cleanup_action.sa_flags = SA_RESTART;
+
+    // Restart IO on interrupt, and reset sig handler to default after one delivery.
+    cleanup_action.sa_flags = SA_RESTART | SA_RESETHAND;
     for (i=sizeof(abort_signals) / sizeof(abort_signals[0]) - 1; i >= 0; --i) {
         if (sigaction(abort_signals[i], &cleanup_action, NULL) != 0) {
             fprintf(stderr, "Failed to set cleanup handler for sig %d.\n",
@@ -448,13 +450,12 @@ void print_final_report(Stats* stats) {
 
 
 void cleanup(int signal) {
-    if (done) {
-        // Already supposed to be done, just abort.
-        abort();
+    // No need for handling a broken pipe, the app will show a message and/or
+    // abort if it's relevant.
+    if (signal != SIGPIPE) {
+        fprintf(stderr, "\nGot signal %s, aborting early.\n",
+                strsignal(signal));
+
+        done = 1;
     }
-
-    fprintf(stderr, "\nGot signal %s, aborting early.\n",
-            strsignal(signal));
-
-    done = 1;
 }
